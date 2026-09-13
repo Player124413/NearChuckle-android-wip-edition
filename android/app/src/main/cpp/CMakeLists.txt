@@ -127,6 +127,16 @@ add_subdirectory("${OPENAL_DIR}" "${CMAKE_BINARY_DIR}/openal-build" EXCLUDE_FROM
 # the repo root.
 # ---------------------------------------------------------------------------
 set(ENGINE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../..")
+
+# CryCommon/platform.h includes <SDL3/SDL.h> on every non-x86_64 Linux build
+# (arm64 included), so ALL engine modules need the real SDL3 headers in their
+# include path. On desktop x86_64 this is masked by __x86_64__ guards and by
+# the system-wide /usr/include; on Android we must expose them explicitly.
+# Likewise every engine .so gets an explicit DT_NEEDED on libSDL3.so so its
+# SDL symbols resolve on Android (no lazy global-scope resolution).
+include_directories("${SDL3_SOURCE_DIR}/include" "${CMAKE_BINARY_DIR}/SDL3-build/include")
+link_libraries(SDL3::SDL3)
+
 add_subdirectory("${ENGINE_ROOT}" "${CMAKE_BINARY_DIR}/engine" EXCLUDE_FROM_ALL)
 
 # Our JNI bridge + touch injector + SDL_main wrapper
