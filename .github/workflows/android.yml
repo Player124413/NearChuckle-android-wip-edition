@@ -1,12 +1,7 @@
 name: CI Android
 
 permissions:
-  contents: write
-
-# Pinned upstream ANGLE revision (main @ 2026-09-12). Bump to update; a changed
-# revision changes the cache key and triggers a clean re-sync automatically.
-env:
-  ANGLE_REVISION: '927129a81b043176070e7089df897251d2da1d86'
+  contents: read
 
 on:
   push:
@@ -18,7 +13,7 @@ on:
 jobs:
   build-android:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -51,288 +46,6 @@ jobs:
           ndk-build --version || true
           cmake --version
           java -version
-          # Free disk space for the ANGLE checkout/build: drop preinstalled NDK versions
-          # we do not use (ANGLE cross-builds with its own DEPS-managed NDK).
-          echo "Preinstalled NDKs:"; ls /usr/local/lib/android/sdk/ndk/ 2>/dev/null || true
-          for d in /usr/local/lib/android/sdk/ndk/*; do
-            [ "$d" = "/usr/local/lib/android/sdk/ndk/26.3.11579264" ] || sudo rm -rf "$d"
-          done || true
-          df -h / | tail -n 1
-
-      - name: Restore depot_tools and ANGLE checkout cache
-        id: angle-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/depot_tools
-            ~/angle
-          key: angle-depot-${{ runner.os }}-v9-${{ env.ANGLE_REVISION }}
-          restore-keys: |
-            angle-depot-${{ runner.os }}-v9-
-            angle-depot-${{ runner.os }}-
-
-      # =============================================================================
-      # Builds REAL ANGLE (https://github.com/google/angle) for Android.
-      #
-      # Root cause of all previous failures ("angle не билдится"):
-      #   gn/autoninja are shell wrappers that exec `python3` from depot_tools,
-      #   and that wrapper hard-requires `python3_bin_reldir.txt` (created only by
-      #   `ensure_bootstrap` / `update_depot_tools`). We set DEPOT_TOOLS_UPDATE=0
-      #   (and ANGLE's own DEPS hook disables auto-update too), so nothing ever
-      #   bootstrapped depot_tools => every `gn` invocation died with
-      #   "python3_bin_reldir.txt not found" while `gclient`/`fetch` kept working
-      #   (they go through `vpython3`, which self-bootstraps .cipd_bin).
-      #   Fix: run `./ensure_bootstrap` explicitly once after cloning depot_tools.
-      #
-      # Second bug: on Android ANGLE builds *suffixed* libraries natively
-      # (angle_libs_suffix defaults to "_angle"): the outputs are
-      # libEGL_angle.so / libGLESv2_angle.so with matching SONAMEs — exactly what
-      # the app dlopen()s. The old script looked for libEGL.so (wrong names) and
-      # passed unnecessary/obsolete GN args (android_ndk_root/android_sdk_root
-      # pointing at the system NDK instead of the DEPS-managed one,
-      # arm_control_flow_integrity). Official ANGLE CI args for Android are just
-      # target_os="android" + target_cpu (see infra/config/gn_args.star upstream).
-      # =============================================================================
-      - name: Build ANGLE from source (https://github.com/google/angle -> real libEGL_angle.so / libGLESv2_angle.so)
-        id: angle-build
-        shell: bash
-        run: |
-          set -uo pipefail
-
-          ANGLE_ROOT="$HOME/angle"
-          ANGLE_SRC="$ANGLE_ROOT/angle"
-          SRC_ROOT="$GITHUB_WORKSPACE/android/app/src/main/jniLibs"
-          mkdir -p "$SRC_ROOT/arm64-v8a" "$SRC_ROOT/armeabi-v7a"
-
-          export DEPOT_TOOLS_UPDATE=0
-          export PATH="$HOME/depot_tools:$PATH"
-
-          echo "::group::1) depot_tools + explicit bootstrap (THE FIX)"
-          if [ ! -d "$HOME/depot_tools/.git" ]; then
-            echo "Cloning depot_tools..."
-            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools"
-          fi
-          # `gn`/`autoninja` wrappers exec `python3` from depot_tools, which needs
-          # python3_bin_reldir.txt + .cipd_bin — created ONLY by ensure_bootstrap.
-          if [ ! -f "$HOME/depot_tools/python3_bin_reldir.txt" ] || [ ! -d "$HOME/depot_tools/.cipd_bin" ]; then
-            echo "Bootstrapping depot_tools (ensure_bootstrap)..."
-            (cd "$HOME/depot_tools" && ./ensure_bootstrap) || {
-              echo "::error::depot_tools ensure_bootstrap failed — gn/autoninja will not work"; exit 1;
-            }
-          else
-            echo "depot_tools already bootstrapped (python3_bin_reldir.txt present)"
-          fi
-          # Prove the wrappers work before spending 10+ min on gclient sync
-          python3 --version || { echo "::error::depot_tools python3 wrapper still broken"; exit 1; }
-          ninja --version   || { echo "::error::ninja unavailable from depot_tools"; exit 1; }
-          echo "::endgroup::"
-
-          echo "::group::2) ANGLE checkout @ $ANGLE_REVISION + gclient sync"
-          # Always (re)write .gclient — fully owned by CI, avoids stale-cache edge cases
-          cat > "$ANGLE_ROOT/.gclient" <<GCLIENT
-          solutions = [
-            {
-              "name"        : "angle",
-              "url"         : "https://chromium.googlesource.com/angle/angle.git@${ANGLE_REVISION}",
-              "managed"     : False,
-              "custom_deps" : {},
-              "custom_vars" : {},
-            },
-          ]
-          target_os = [ "android" ]
-          GCLIENT
-          echo "--- .gclient ---"; cat "$ANGLE_ROOT/.gclient"
-          df -h / | tail -n 1
-
-          # If the cached checkout is at a different revision, wipe and re-clone at the pin
-          if [ -d "$ANGLE_SRC/.git" ]; then
-            CUR_SHA=$(git -C "$ANGLE_SRC" rev-parse HEAD 2>/dev/null || echo unknown)
-            if [ "$CUR_SHA" != "$ANGLE_REVISION" ]; then
-              echo "Cached ANGLE checkout at $CUR_SHA != $ANGLE_REVISION — wiping for clean re-sync"
-              rm -rf "$ANGLE_SRC"
-            fi
-          fi
-
-          cd "$ANGLE_ROOT"
-          echo "=== gclient sync -D --no-history (DEPS + hooks: clang, Android NDK/SDK via CIPD; ~10-15 min cold) ==="
-          timeout 2400 gclient sync -D --no-history 2>&1 | tee /tmp/gclient_sync.log | tail -n 200
-          SYNC_STATUS=${PIPESTATUS[0]}
-          if [ "$SYNC_STATUS" -ne 0 ]; then
-            echo "::error::gclient sync failed (status $SYNC_STATUS) — tail:"
-            tail -n 120 /tmp/gclient_sync.log
-            exit 1
-          fi
-          ls -ld "$ANGLE_SRC"/third_party/android_toolchain "$ANGLE_SRC"/third_party/android_sdk "$ANGLE_SRC"/third_party/gn 2>&1 | head -n 10 || true
-          echo "::endgroup::"
-
-          echo "::group::3) Host build deps (best-effort, not required for Android cross-build)"
-          cd "$ANGLE_SRC"
-          if [ -x ./build/install-build-deps.sh ]; then
-            ./build/install-build-deps.sh --no-prompt 2>&1 | tail -n 30 \
-              || sudo ./build/install-build-deps.sh --no-prompt 2>&1 | tail -n 30 \
-              || echo "::warning::install-build-deps failed (continuing — Android cross-build does not need it)"
-          fi
-          echo "::endgroup::"
-
-          echo "::group::4) Build ANGLE arm64-v8a + armeabi-v7a (Release, no placeholders)"
-          cd "$ANGLE_SRC"
-
-          # NOTE: with target_os="android", outputs are libEGL_angle.so/libGLESv2_angle.so
-          # (angle_libs_suffix = "_angle" by default on Android) with matching SONAMEs.
-          valid_cached() {
-            local dir="$1" machine="$2" m
-            [ -f "$dir/libEGL_angle.so" ] && [ -f "$dir/libGLESv2_angle.so" ] || return 1
-            m=$(readelf -h "$dir/libEGL_angle.so" 2>/dev/null | awk '/Machine:/{print $NF}')
-            [ "$m" = "$machine" ] || return 1
-            # guard against truncated/corrupt cache: header alone is not enough.
-            # NOTE: do NOT use `readelf | grep -q` here — grep -q closes the pipe on
-            # first match, readelf then dies of SIGPIPE (141) under pipefail, and
-            # symbols late in the table are never even read. Bash pattern on a
-            # captured string is pipe-free and deterministic.
-            [[ "$(readelf --dyn-syms "$dir/libEGL_angle.so" 2>/dev/null)" == *eglGetDisplay* ]]
-          }
-
-          build_abi() {
-            local outdir="$1" cpu="$2" extra="$3" tag="$4"
-            local args="target_os=\"android\" target_cpu=\"$cpu\" $extra is_debug=false is_component_build=false symbol_level=0 use_remoteexec=false angle_enable_vulkan=true"
-            echo "--- gn gen $outdir ---"
-            echo "gn args: $args"
-            if ! gn gen "$outdir" --args="$args" 2>&1 | tee "/tmp/gn_${tag}.log"; then
-              echo "::error::gn gen failed for $outdir"
-              tail -n 60 "/tmp/gn_${tag}.log"
-              return 1
-            fi
-            echo "--- autoninja -C $outdir libEGL libGLESv2 (cold: 15-25 min per ABI) ---"
-            if ! autoninja -C "$outdir" libEGL libGLESv2 2>&1 | tee "/tmp/ninja_${tag}.log" | tail -n 300; then
-              echo "::error::autoninja failed for $outdir"
-              grep -E -i "error|FAILED" "/tmp/ninja_${tag}.log" | tail -n 60 || true
-              tail -n 120 "/tmp/ninja_${tag}.log"
-              return 1
-            fi
-            ls -lh "$outdir/libEGL_angle.so" "$outdir/libGLESv2_angle.so" || return 1
-          }
-
-          if valid_cached out/Android_arm64 AArch64; then
-            echo "Valid cached arm64 ANGLE build — skipping gn/ninja"
-          else
-            build_abi out/Android_arm64 arm64 "" arm64 || exit 1
-            valid_cached out/Android_arm64 AArch64 || {
-              echo "::error::arm64 build did not produce AArch64 libEGL_angle.so/libGLESv2_angle.so"
-              echo "readelf Machine: libEGL_angle.so=[$(readelf -h out/Android_arm64/libEGL_angle.so 2>/dev/null | awk '/Machine:/{print $NF}')] libGLESv2_angle.so=[$(readelf -h out/Android_arm64/libGLESv2_angle.so 2>/dev/null | awk '/Machine:/{print $NF}')]"
-              find out/Android_arm64 -maxdepth 3 -name '*.so' 2>/dev/null | head -n 20
-              exit 1
-            }
-          fi
-
-          if valid_cached out/Android_arm ARM; then
-            echo "Valid cached arm32 ANGLE build — skipping gn/ninja"
-          else
-            build_abi out/Android_arm arm "arm_version=7" arm || exit 1
-            valid_cached out/Android_arm ARM || {
-              echo "::error::arm32 build did not produce ARM libEGL_angle.so/libGLESv2_angle.so"
-              echo "readelf Machine: libEGL_angle.so=[$(readelf -h out/Android_arm/libEGL_angle.so 2>/dev/null | awk '/Machine:/{print $NF}')] libGLESv2_angle.so=[$(readelf -h out/Android_arm/libGLESv2_angle.so 2>/dev/null | awk '/Machine:/{print $NF}')]"
-              find out/Android_arm -maxdepth 3 -name '*.so' 2>/dev/null | head -n 20
-              exit 1
-            }
-          fi
-          echo "::endgroup::"
-
-          echo "::group::5) Install ANGLE libs into jniLibs (STRICT — fail instead of placeholders)"
-          install_pair() {
-            local src="$1" dst="$2" machine="$3" lib m sym
-            for lib in libEGL_angle.so libGLESv2_angle.so; do
-              if [ ! -f "$src/$lib" ]; then echo "::error::$src/$lib missing"; return 1; fi
-              m=$(readelf -h "$src/$lib" | awk '/Machine:/{print $NF}')
-              if [ "$m" != "$machine" ]; then
-                echo "::error::$src/$lib is '$m', expected '$machine' (host build leaked in?)"
-                file "$src/$lib"
-                return 1
-              fi
-              case "$lib" in
-                libEGL_angle.so)    sym=eglGetDisplay ;;
-                libGLESv2_angle.so) sym=glBindTexture ;;
-              esac
-              if [[ "$(readelf --dyn-syms "$src/$lib" 2>/dev/null)" != *"$sym"* ]]; then
-                echo "::error::$src/$lib does not export '$sym' — corrupt/placeholder, refusing to ship"
-                readelf --dyn-syms "$src/$lib" 2>&1 | head -n 5
-                return 1
-              fi
-              cp -v "$src/$lib" "$dst/$lib"
-            done
-            ls -lh "$dst"
-          }
-          install_pair out/Android_arm64 "$SRC_ROOT/arm64-v8a" AArch64 || exit 1
-          install_pair out/Android_arm   "$SRC_ROOT/armeabi-v7a" ARM || exit 1
-
-          for f in "$SRC_ROOT"/arm64-v8a/*.so "$SRC_ROOT"/armeabi-v7a/*.so; do
-            echo "--- $f ($(stat -c%s "$f") bytes) ---"
-            readelf -h "$f" | grep -E 'Class:|Machine:|Type:'
-          done | tee /tmp/final_jnilibs.log
-
-          # Keep the ~/angle Actions cache under the 10 GB repo limit: drop compiler
-          # intermediates. Full rebuilds only happen when ANGLE_REVISION changes
-          # (cached .so files are verified and reused directly otherwise).
-          rm -rf out/Android_arm64/obj out/Android_arm/obj 2>/dev/null || true
-          echo "::endgroup::"
-
-          {
-            echo "## ANGLE build result (run ${{ github.run_id }})"
-            echo "Revision: \`${ANGLE_REVISION}\`"
-            echo '```'
-            cat /tmp/final_jnilibs.log 2>/dev/null || true
-            echo '```'
-          } >> $GITHUB_STEP_SUMMARY || true
-
-          echo "ANGLE REAL build SUCCEEDED — libEGL_angle.so/libGLESv2_angle.so installed into jniLibs"
-
-      # Save the (expensive, ~25 min cold) ANGLE checkout + build state right after
-      # the build step, so a failure in any LATER step (verify/gradle/lint) does not
-      # throw it away. Only the Release leg saves to avoid key races between the
-      # parallel matrix jobs; skipped on exact cache hit (nothing new to store).
-      - name: Save depot_tools and ANGLE checkout cache
-        if: matrix.build_type == 'Release' && steps.angle-build.outcome == 'success' && steps.angle-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/depot_tools
-            ~/angle
-          key: angle-depot-${{ runner.os }}-v9-${{ env.ANGLE_REVISION }}
-
-      - name: Verify ANGLE libs before Gradle (strict)
-        run: |
-          set -euo pipefail
-          echo "=== Pre-Gradle jniLibs verification (STRICT — no placeholders) ==="
-          ls -lh android/app/src/main/jniLibs/arm64-v8a/ android/app/src/main/jniLibs/armeabi-v7a/
-          fail=0
-          # NOTE: real libEGL_angle.so is a thin dispatch layer (~150-350 KB);
-          # libGLESv2_angle.so is the big one (~4-15 MB). A minimum-size floor is
-          # NOT a valid check. The real guard against the old random-data
-          # placeholders is: correct Machine + exported API symbols in .dynsym.
-          check_lib() {
-            local f="$1" machine="$2" must_sym="$3" m sz dyn
-            m=$(readelf -h "$f" | awk '/Machine:/{print $NF}')
-            sz=$(stat -c%s "$f")
-            echo "$f: $(file -b "$f") [$m, $sz bytes]"
-            if [ "$m" != "$machine" ]; then
-              echo "::error::$f: wrong machine '$m' (expected '$machine')"
-              fail=1; return
-            fi
-            if [ "$sz" -lt 20000 ]; then
-              echo "::error::$f: suspiciously small ($sz bytes) — truncated or placeholder"
-              fail=1; return
-            fi
-            dyn=$(readelf --dyn-syms "$f" 2>/dev/null || true)
-            if [[ "$dyn" != *"$must_sym"* ]]; then
-              echo "::error::$f: '$must_sym' not exported — not a real library (placeholder/corrupt)"
-              printf '%s\n' "$dyn" | head -n 5 || true
-              fail=1
-            fi
-          }
-          check_lib android/app/src/main/jniLibs/arm64-v8a/libEGL_angle.so    AArch64 eglGetDisplay
-          check_lib android/app/src/main/jniLibs/arm64-v8a/libGLESv2_angle.so AArch64 glBindTexture
-          check_lib android/app/src/main/jniLibs/armeabi-v7a/libEGL_angle.so   ARM     eglGetDisplay
-          check_lib android/app/src/main/jniLibs/armeabi-v7a/libGLESv2_angle.so ARM     glBindTexture
-          exit $fail
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -398,24 +111,11 @@ jobs:
         if: failure()
         run: |
           echo "=== DIAGNOSE ==="
-          # Gradles
           tail -n 200 /tmp/gradle-${{ matrix.build_type }}.log 2>&1 | tail -n 200 || echo "no gradle log"
-          # ANGLE logs
-          echo "=== ANGLE logs ==="
-          cat /tmp/gn_arm64.log 2>&1 | tail -n 100 || true
-          cat /tmp/ninja_arm64.log 2>&1 | tail -n 100 || true
-          cat /tmp/gn_arm.log 2>&1 | tail -n 100 || true
-          cat /tmp/final_jnilibs.log 2>&1 | tail -n 100 || true
-          # Summary
           {
             echo "## Gradle failure tail (${{ matrix.build_type }})"
             echo '```'
             tail -n 250 /tmp/gradle-${{ matrix.build_type }}.log 2>&1 | tail -n 250 || echo "no log"
-            echo '```'
-            echo "## ANGLE gn logs"
-            echo '```'
-            cat /tmp/gn_arm64.log 2>&1 | tail -n 80 || true
-            cat /tmp/ninja_arm64.log 2>&1 | tail -n 80 || true
             echo '```'
             echo "## Grep errors"
             echo '```'
@@ -429,28 +129,34 @@ jobs:
       - name: Verify APK
         working-directory: android
         run: |
+          set -euo pipefail
           APK=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
           echo "Found APK: $APK"
           ls -lh app/build/outputs/apk/*/*/*.apk || true
           if [ -z "$APK" ]; then echo "APK not found!"; exit 1; fi
-          unzip -l "$APK" | grep -E "lib/arm64|lib/armeabi|libCry|libXRender|SDL" || true
-          echo "=== APK ANGLE libs sizes ==="
-          unzip -l "$APK" | grep -i angle || echo "no angle in zip list"
-          unzip -p "$APK" AndroidManifest.xml | strings | grep -i angle || echo "Angle meta not in binary manifest"
-          $ANDROID_SDK_ROOT/build-tools/34.0.0/aapt2 dump xmltree "$APK" --file AndroidManifest.xml | grep -i angle || true
-          echo "=== unzip -v angle libs ==="
-          unzip -lv "$APK" | grep -i angle || true
-          mkdir -p /tmp/apk_check && rm -rf /tmp/apk_check/* && unzip -o "$APK" "lib/*/*angle*" -d /tmp/apk_check 2>&1 | head -n 20 || true
-          ls -lh /tmp/apk_check/lib/*/* 2>&1 | head -n 20 || true
-          for f in /tmp/apk_check/lib/*/*angle*; do echo "--- $f ---"; file "$f" 2>&1 | head -n 5; ls -lh "$f"; readelf -h "$f" 2>&1 | head -n 10; done 2>&1 | head -n 80 || true
+          echo "=== Native libs inside APK ==="
+          unzip -l "$APK" | grep -E "lib/" || true
+          # Extract every packaged .so and verify its architecture (arm64-v8a => AArch64, armeabi-v7a => ARM)
+          mkdir -p /tmp/apk_check && rm -rf /tmp/apk_check/*
+          unzip -o -q "$APK" "lib/*" -d /tmp/apk_check || true
+          fail=0
+          while IFS= read -r f; do
+            m=$(readelf -h "$f" 2>/dev/null | awk '/Machine:/{print $NF}')
+            case "$f" in
+              */arm64-v8a/*)   want=AArch64 ;;
+              */armeabi-v7a/*) want=ARM ;;
+              *)               want="$m" ;; # unexpected dir — just report
+            esac
+            echo "$f: machine=$m (expected $want), $(stat -c%s "$f") bytes"
+            if [ "$m" != "$want" ]; then echo "::error::$f: wrong architecture ($m != $want)"; fail=1; fi
+          done < <(find /tmp/apk_check/lib -type f -name '*.so' 2>/dev/null | sort)
           {
-            echo "## APK ANGLE verification"
+            echo "## APK native libs"
             echo '```'
-            unzip -lv "$APK" | grep -i angle || true
-            echo '--- file ---'
-            for f in /tmp/apk_check/lib/*/*angle*; do file "$f"; readelf -h "$f" 2>&1 | head -n 8; done
+            unzip -lv "$APK" | grep -E "lib/" || true
             echo '```'
           } >> $GITHUB_STEP_SUMMARY || true
+          exit $fail
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -461,76 +167,6 @@ jobs:
             android/app/build/outputs/mapping/**/*.txt
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Upload ANGLE build logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: angle-logs-${{ matrix.build_type }}-${{ matrix.abi }}
-          path: |
-            /tmp/gn_*.log
-            /tmp/ninja_*.log
-            /tmp/fetch_angle.log
-            /tmp/gclient_sync*.log
-            /tmp/final_jnilibs.log
-            /tmp/gradle-*.log
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Push ANGLE logs to ci-logs branch (always, for debug without blob)
-        if: always()
-        run: |
-          set +e
-          echo "Pushing ANGLE logs to ci-logs branch for sandbox visibility (bypasses blob egress block)"
-          mkdir -p /tmp/ci_logs_push
-          cp /tmp/gn_*.log /tmp/ci_logs_push/ 2>/dev/null || true
-          cp /tmp/ninja_*.log /tmp/ci_logs_push/ 2>/dev/null || true
-          cp /tmp/fetch_angle.log /tmp/ci_logs_push/ 2>/dev/null || true
-          cp /tmp/gclient_sync.log /tmp/ci_logs_push/ 2>/dev/null || true
-          cp /tmp/gclient_sync2.log /tmp/ci_logs_push/ 2>/dev/null || true
-          cp /tmp/final_jnilibs.log /tmp/ci_logs_push/ 2>/dev/null || true
-          cp /tmp/gradle-*.log /tmp/ci_logs_push/ 2>/dev/null || true
-          ls -lh /tmp/ci_logs_push/ 2>&1 | head -n 30 || true
-          # Also capture file checks
-          echo "=== file checks (out dirs: libEGL_angle.so / libGLESv2_angle.so) ===" > /tmp/ci_logs_push/file_checks.log 2>&1 || true
-          for d in Android_arm64 Android_arm; do
-            for lib in libEGL_angle.so libGLESv2_angle.so; do
-              f="$HOME/angle/angle/out/$d/$lib"
-              {
-                echo "--- $f ---"
-                ls -lh "$f" 2>&1 | head -n 2
-                file "$f" 2>&1 | head -n 2
-                readelf -h "$f" 2>&1 | grep -E 'Class:|Machine:' | head -n 4
-              } >> /tmp/ci_logs_push/file_checks.log 2>&1 || true
-            done
-          done
-          cat /tmp/ci_logs_push/file_checks.log 2>&1 | head -n 60 || true
-          git config user.name "github-actions[bot]" 2>&1 | head -n 5 || true
-          git config user.email "github-actions[bot]@users.noreply.github.com" 2>&1 | head -n 5 || true
-          git fetch origin ci-logs 2>&1 | head -n 20 || true
-          # checkout or create ci-logs branch
-          if git show-ref --verify --quiet refs/remotes/origin/ci-logs; then
-            git checkout ci-logs 2>&1 | head -n 20 || git checkout -b ci-logs origin/ci-logs 2>&1 | head -n 20 || true
-          else
-            git checkout --orphan ci-logs 2>&1 | head -n 20 || git checkout -b ci-logs 2>&1 | head -n 20 || true
-            git rm -rf . 2>&1 | head -n 20 || true
-            echo "# CI logs" > README.md
-            git add README.md 2>&1 | head -n 20 || true
-            git commit -m "init ci-logs" 2>&1 | head -n 20 || true
-            git push origin ci-logs 2>&1 | tail -n 20 || true
-            # re-checkout
-            git checkout ci-logs 2>&1 | head -n 20 || true
-          fi
-          mkdir -p ci_logs/${{ matrix.build_type }}_${{ matrix.abi }}
-          cp /tmp/ci_logs_push/* ci_logs/${{ matrix.build_type }}_${{ matrix.abi }}/ 2>/dev/null || true
-          echo "Run ${{ github.run_id }} branch ${{ github.head_ref || github.ref_name }} sha ${{ github.sha }} build ${{ matrix.build_type }} abi ${{ matrix.abi }} date $(date -u)" > ci_logs/${{ matrix.build_type }}_${{ matrix.abi }}/run_info.txt
-          cat $GITHUB_STEP_SUMMARY 2>/dev/null | head -n 500 > ci_logs/${{ matrix.build_type }}_${{ matrix.abi }}/summary.md 2>/dev/null || true
-          git add ci_logs 2>&1 | head -n 20 || true
-          git commit -m "ci: ANGLE logs run ${{ github.run_id }} ${{ matrix.build_type }}_${{ matrix.abi }} [skip ci]" 2>&1 | head -n 20 || echo "nothing to commit"
-          git push origin ci-logs 2>&1 | tail -n 20 || echo "push to ci-logs failed (non-fatal)"
-          # return to original branch
-          git checkout ${{ github.head_ref || github.ref_name }} 2>&1 | head -n 20 || git checkout arena/01a099c8-nearchuckle-android-wip-editio 2>&1 | head -n 20 || true
-          echo "ci-logs push done"
 
       - name: Upload build logs on failure
         if: failure()

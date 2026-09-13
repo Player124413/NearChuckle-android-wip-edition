@@ -25,8 +25,6 @@ android {
                 cppFlags "-std=c++17 -frtti -fexceptions"
                 arguments "-DANDROID_STL=c++_shared",
                           "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
-                          "-DUSE_ANGLE=ON",
-                          "-DANGLE_USE_VULKAN=ON",
                           "-DDISABLE_CG=ON",
                           "-DANDROID_PERFORMANCE_MODE=ON",
                           "-DCMAKE_BUILD_TYPE=Release"
@@ -85,9 +83,6 @@ android {
         }
     }
 
-    // ANGLE: ensure EGL/GLES from ANGLE preferred
-    // No extra config needed, CMake will link angle libs
-
     buildFeatures {
         buildConfig true
         viewBinding true
@@ -120,11 +115,3 @@ dependencies {
     implementation 'androidx.documentfile:documentfile:1.0.1'
     // SDL3 will be provided via native CMake FetchContent, Java part copied via CMake install
 }
-
-// Task to download ANGLE prebuilts if needed (fallback)
-task downloadAnglePrebuilts(type: Exec) {
-    description = "Download ANGLE prebuilts (if USE_ANGLE prebuilt mode)"
-    // No-op in CI if already fetched via CMake FetchContent
-    commandLine 'echo', 'ANGLE will be fetched via CMake FetchContent from https://github.com/google/angle'
-}
-preBuild.dependsOn downloadAnglePrebuilts

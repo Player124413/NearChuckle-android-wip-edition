@@ -27,7 +27,7 @@ public class LauncherActivity extends AppCompatActivity {
     private Slider sliderFps, sliderRes, sliderSens, sliderOpacity;
     private SwitchMaterial switchTouch, switchDynRes;
     private MaterialButton btnChooseFolder, btnVerify, btnPlay, btnEditTouch;
-    private MaterialButton btnAngle, btnGles, btnAuto;
+    private MaterialButton btnGles, btnAuto;
     private SettingsManager settings;
 
     private ActivityResultLauncher<Intent> folderPickerLauncher;
@@ -51,7 +51,6 @@ public class LauncherActivity extends AppCompatActivity {
         btnVerify = findViewById(R.id.btnVerify);
         btnPlay = findViewById(R.id.btnPlay);
         btnEditTouch = findViewById(R.id.btnEditTouch);
-        btnAngle = findViewById(R.id.btnAngle);
         btnGles = findViewById(R.id.btnGles);
         btnAuto = findViewById(R.id.btnAuto);
 
@@ -102,7 +101,6 @@ public class LauncherActivity extends AppCompatActivity {
 
     private void loadSettingsToUI() {
         String rend = settings.getRenderer();
-        btnAngle.setChecked("angle".equals(rend));
         btnGles.setChecked("gles".equals(rend));
         btnAuto.setChecked("auto".equals(rend) || rend==null);
 
@@ -136,7 +134,6 @@ public class LauncherActivity extends AppCompatActivity {
 
         btnVerify.setOnClickListener(v -> verifyGameFolder());
 
-        btnAngle.setOnClickListener(v -> { settings.setRenderer("angle"); loadSettingsToUI(); Toast.makeText(this,"ANGLE: GLES→Vulkan via Google ANGLE — стабильно на Mali/Adreno",Toast.LENGTH_SHORT).show(); });
         btnGles.setOnClickListener(v -> { settings.setRenderer("gles"); loadSettingsToUI(); });
         btnAuto.setOnClickListener(v -> { settings.setRenderer("auto"); loadSettingsToUI(); });
 

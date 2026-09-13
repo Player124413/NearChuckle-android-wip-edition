@@ -43,7 +43,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Game Activity - SDL + ANGLE -->
+        <!-- Game Activity - SDL -->
         <activity
             android:name=".GameActivity"
             android:exported="false"
@@ -53,8 +53,6 @@
             android:keepScreenOn="true"
             android:launchMode="singleTask"
             android:immersive="true">
-            <!-- ANGLE hint: use ANGLE's Vulkan backend if available -->
-            <meta-data android:name="com.google.android.angle.GameAngle" android:value="vulkan" />
         </activity>
 
         <!-- File picker helper -->

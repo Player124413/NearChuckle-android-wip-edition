@@ -14,7 +14,7 @@ public class SettingsManager {
 
     // Keys
     public static final String KEY_GAME_FOLDER = "game_folder";
-    public static final String KEY_RENDERER = "renderer"; // angle/gles/auto
+    public static final String KEY_RENDERER = "renderer"; // gles/auto
     public static final String KEY_FPS_LIMIT = "fps_limit";
     public static final String KEY_RES_SCALE = "res_scale";
     public static final String KEY_DYN_RES = "dyn_res";
@@ -35,7 +35,12 @@ public class SettingsManager {
     public String getGameFolder() { return sp.getString(KEY_GAME_FOLDER, "/storage/emulated/0/FarCry"); }
     public void setGameFolder(String v) { sp.edit().putString(KEY_GAME_FOLDER, v).apply(); }
 
-    public String getRenderer() { return sp.getString(KEY_RENDERER, "auto"); }
+    public String getRenderer() {
+        String v = sp.getString(KEY_RENDERER, "auto");
+        // ANGLE removed — migrate legacy preference to native GLES
+        if ("angle".equals(v)) { setRenderer("gles"); return "gles"; }
+        return v;
+    }
     public void setRenderer(String v) { sp.edit().putString(KEY_RENDERER, v).apply(); }
 
     public int getFpsLimit() { return sp.getInt(KEY_FPS_LIMIT, 60); }

@@ -1,4 +1,4 @@
-# NearChuckle Android — Лаунчер + Сенсор + ANGLE
+# NearChuckle Android — Лаунчер + Сенсор
 
 Порт Far Cry (CryEngine 1) на Android с мега-оптимизацией.
 
@@ -7,7 +7,6 @@
 ### 1. Лаунчер (`LauncherActivity`)
 - Выбор папки с игрой через SAF (Storage Access Framework, работает на Android 11+)
 - Ручной ввод пути, проверка `FCData`/`Levels`
-- Выбор рендера: **ANGLE (Vulkan)**, системный GLES, Авто
 - Слайдеры: FPS лимит 30-120, масштаб разрешения 0.5-1.0, чувствительность, прозрачность
 - Динамическое разрешение (on/off)
 - Кнопка **Редактор управления** — открывает превью и позволяет настроить оверлей без запуска игры
@@ -25,13 +24,10 @@
 
 Дефолтная раскладка: стики по углам, огонь/прицел справа, прыжок/присед/спринт снизу-справа, перезарядка/использовать/фонарик по центру, смена оружия, меню ≡ сверху.
 
-### 3. Google ANGLE (`https://github.com/google/angle`)
-- В `android/app/src/main/cpp/CMakeLists.txt` включён `USE_ANGLE=ON`
-- При `ANGLE_FETCH=ON` делает `FetchContent` из `google/angle` (main, shallow). По умолчанию `OFF` чтобы не тянуть 500 MB в CI — использует системный ANGLE через `libEGL_angle.so` или `EGL_VENDOR=ANGLE`
-- Манифест содержит `<meta-data com.google.android.angle.GameAngle=vulkan>` — на Android 12+ система автоматически подменяет GLES → Vulkan
-- `angle_manager.cpp` в рантайме детектит ANGLE (dlopen + EGL_VENDOR), логирует бэкенд, даёт `GetBackendName()` для логов/debuga
-- Fallback на нативный GLES если ANGLE недоступен (Mali старый, эмулятор)
-- Нативный линк: `libEGL_angle.so` + `libGLESv2_angle.so` если собраны, иначе системные `libEGL.so`/`libGLESv2.so`
+### 3. Рендер — нативный GLES
+- Приложение линкуется с системными `libEGL.so`/`libGLESv2.so` и использует драйвер устройства
+- Слой трансляции GLES→Vulkan (Google ANGLE) полностью удалён: сборка из исходников в CI
+  занимала 25+ минут и была хрупкой. Старая настройка «ANGLE» мигрируется на «GLES»
 
 ### 4. Мега-оптимизация для всех смартфонов
 **CMake / компиляция:**
@@ -53,7 +49,6 @@
 
 **Батарея/тепло:**
 - `r_VSync=0` + программный лимит FPS через `sys_maxfps`, `power` гейм-мод в `game_mode_config.xml`
-- Тротлинг при нагреве: ANGLE Vulkan меньше греет Mali, чем GLES
 
 **Файл `system_android.cfg` в `assets/`:** копируется при первом запуске если `system.cfg` нет — даёт сразу играбельные 60 FPS на Snapdragon 680 / Helio G85 и выше.
 
@@ -81,17 +76,15 @@ android/
     NativeBridge.java — JNI
   app/src/main/cpp/
     native_bridge.cpp — SDL_PushEvent инъекция
-    angle_manager.cpp/h — ANGLE детект
     android_main.cpp — SDL_main обёртка
-    CMakeLists.txt — FetchContent ANGLE + оптимизация
+    CMakeLists.txt — сборка моста + оптимизация
   app/src/main/assets/system_android.cfg
 ```
 
 ## Тестирование
-- Запусти на эмуляторе Pixel 4 API 31: должен выбрать ANGLE → Vulkan, 60 FPS, тачи работают
-- На реальном Mali (Redmi Note 11) — сравни `adb logcat | grep ANGLE` — должно быть «ANGLE enabled»
+- Запусти на эмуляторе Pixel 4 API 31: нативный GLES, 60 FPS, тачи работают
 - Проверь EDIT: перетащи прыжок в центр, увеличь щипком, скрой глазом, выключи сенсор — должна появиться плашка
 - Отключи сенсор — геймпад (Xbox/BT) всё ещё работает
 
 ## Лицензии
-ANGLE: BSD-3. Код порта — оригинал NearChuckle + этот оверлей.
+Код порта — оригинал NearChuckle + этот оверлей.

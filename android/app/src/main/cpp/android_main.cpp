@@ -1,6 +1,4 @@
 #include <android/log.h>
-#include <cstdlib>
-#include <cstring>
 #if __has_include(<SDL3/SDL.h>)
 #include <SDL3/SDL.h>
 #elif __has_include(<SDL.h>)
@@ -9,13 +7,12 @@
 #include "SDL_stub.h"
 #endif
 #include <jni.h>
-#include "angle_manager.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "NearChuckleAndroid", __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, "NearChuckleAndroid", __VA_ARGS__)
 
 // This is the SDL_main entry that the engine's Main.cpp will provide.
-// For Android we wrap it to setup ANGLE + chdir to game folder before calling real main.
+// For Android we wrap it to chdir to the game folder before calling real main.
 
 // Weak symbol — if CryEngine not linked (CI stub build), fallback to 0 instead of linker error
 extern "C" int FarCry_SDL_main(int argc, char** argv) __attribute__((weak));
@@ -25,19 +22,7 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     LOGI("SDL_main entry: argc=%d", argc);
     for (int i=0;i<argc;i++) LOGI(" argv[%d]=%s", i, argv[i]);
 
-    // Init ANGLE before any GL context creation
-    // Check intent extras: renderer pref via env or settings
-    // We read a property file written by launcher? For now default to Vulkan if available
-    bool useAngle = true;
-    bool useVulkan = true;
-    // Could read from SDL hint or system property
-    const char* envAngle = getenv("NEARCHUCKLE_USE_ANGLE");
-    if (envAngle && strcmp(envAngle, "0")==0) useAngle = false;
-
-    AngleManager::Initialize(useVulkan && useAngle);
-    LOGI("ANGLE backend: %s", AngleManager::GetBackendName());
-
-    // Performance: set thread priority, GC hints
+    // Renderer: native GLES driver of the device (ANGLE removed).
     // Chdir to game folder is done via Java NativeBridge nativeGetGameFolder + chdir in SystemInit
 
     LOGI("Forwarding to FarCry main...");
@@ -49,7 +34,6 @@ extern "C" int SDL_main(int argc, char* argv[]) {
         LOGW("FarCry_SDL_main not linked (CI stub) — skipping engine main, returning 0");
         ret = 0;
     }
-    AngleManager::Shutdown();
     return ret;
 }
 

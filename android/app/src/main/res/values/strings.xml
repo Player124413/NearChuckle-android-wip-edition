@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">NearChuckle</string>
     <string name="launcher_title">NearChuckle — Far Cry Android</string>
-    <string name="launcher_subtitle">Порт CryEngine 1 на Android • SDL3 + ANGLE (Vulkan)</string>
+    <string name="launcher_subtitle">Порт CryEngine 1 на Android • SDL3 + нативный GLES</string>
     <string name="btn_play">ИГРАТЬ</string>
     <string name="btn_settings">Настройки</string>
     <string name="btn_edit_touch">Редактор управления</string>
@@ -11,9 +11,8 @@
     <string name="hint_game_folder">Папка с игрой (FCData, Levels…)</string>
     <string name="choose_folder">Выбрать папку</string>
     <string name="renderer">Рендер</string>
-    <string name="renderer_angle">ANGLE (Vulkan) — Рекомендуется</string>
     <string name="renderer_gles">Системный GLES — Совместимость</string>
-    <string name="renderer_auto">Авто (ANGLE если доступен)</string>
+    <string name="renderer_auto">Авто (системный выбор)</string>
     <string name="touch_enable">Сенсорное управление</string>
     <string name="touch_enable_desc">Показать оверлей кнопок в игре</string>
     <string name="touch_sensitivity">Чувствительность камеры</string>
@@ -33,5 +32,5 @@
     <string name="msg_no_game_folder">Сначала выбери папку с установленной Far Cry (должен быть FCData)</string>
     <string name="msg_verify_ok">Файлы в порядке ✓</string>
     <string name="msg_verify_fail">Не найдено: FCData.pak / Levels</string>
-    <string name="about">Порт NearChuckle использует SDL3 и Google ANGLE для трансляции GLES → Vulkan. Оптимизирован для всех смартфонов: автодетект GPU, адаптивный LOD, потоковая подгрузка, мультипоточность.</string>
+    <string name="about">Порт NearChuckle использует SDL3 и нативный GLES-драйвер устройства. Оптимизирован для всех смартфонов: автодетект GPU, адаптивный LOD, потоковая подгрузка, мультипоточность.</string>
 </resources>

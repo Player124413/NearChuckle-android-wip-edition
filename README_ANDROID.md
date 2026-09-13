@@ -12,7 +12,7 @@
 ## Лаунчер
 
 - **Папка**: SAF picker (Android 11+) или ручной путь. Кнопка *Проверить файлы* ищет `FCData`/`Levels`.
-- **Рендер**: `ANGLE (Vulkan)` — рекомендуется (GLES→Vulkan via https://github.com/google/angle), `GLES` — fallback, `Авто` — выбирает сам.
+- **Рендер**: нативный GLES-драйвер устройства (системные `libEGL.so`/`libGLESv2.so`).
 - **FPS / Разрешение**: слайдеры, динамическое разрешение `on/off`.
 - **Сенсор**: вкл/выкл, чувствительность, прозрачность, кнопка *Редактор управления*.
 
@@ -29,17 +29,12 @@
 - **Когда сенсор отключён**: на экране полупрозрачная плашка «Сенсор отключён — нажми EDIT», खेल продолжает работать с геймпадом/клавиатурой. Нажатие EDIT возвращает оверлей.
 - Настройки сохраняются в `SharedPreferences` (JSON) и выживают перезапуск.
 
-## ANGLE
+## Рендер
 
-Используется либа **https://github.com/google/angle** — трансляция GLES→Vulkan для стабильности на Mali/Adreno/PowerVR.
-
-- В `android/app/src/main/cpp/CMakeLists.txt`: `option(USE_ANGLE ON)`, `FetchContent` опционально.
-- В `AndroidManifest.xml`: `<meta-data android:name="com.google.android.angle.GameAngle" android:value="vulkan" />`
-- `angle_manager.cpp` детектит `libEGL_angle.so` и `EGL_VENDOR==ANGLE`, логирует бэкенд.
-- Реальные `libEGL_angle.so`/`libGLESv2_angle.so` собираются в CI из исходников ANGLE
-  (depot_tools + `ensure_bootstrap` + `gclient sync` c `target_os=["android"]` + `gn gen`/`autoninja`,
-  GN-арги как у официального ANGLE CI). Никаких заглушек: если сборка ANGLE падает — job красный.
-  Подробности: `android/app/src/main/cpp/angle/README_ANGLE.txt`.
+Нативный GLES-драйвер устройства. Слой трансляции GLES→Vulkan (Google ANGLE) **полностью удалён** из проекта:
+сборка из исходников в CI занимала 25+ минут и была хрупкой, а на части устройств выигрыша не давала.
+Приложение линкуется с системными `libEGL.so`/`libGLESv2.so` и работает на любом устройстве/эмуляторе.
+Старая настройка «ANGLE» в лаунчере автоматически мигрирует на «GLES».
 
 ## Мега-оптимизация
 
@@ -53,7 +48,7 @@
 
 Workflow `.github/workflows/android.yml`:
 - `setup-java 17`, `setup-android`, `ndk 26.3.11579264`, `cmake 3.22.1`
-- Кэш `gradle` и `ANGLE`
+- Кэш `gradle`
 - Автоскачивание `gradle-wrapper.jar` если отсутствует
 - Сборка `assembleDebug` + `assembleRelease`, проверка `aapt2 dump`, загрузка артефактов.
 
@@ -67,7 +62,7 @@ cd android
 # APK: app/build/outputs/apk/debug/app-debug.apk
 # Установить:
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb logcat | grep -E "ANGLE|NearChuckle"
+adb logcat | grep -E "NearChuckleAndroid|NearChuckle"
 ```
 
 Требования: JDK 17, Android SDK 34, NDK 26.3.11579264, CMake 3.22.1.
@@ -76,6 +71,6 @@ adb logcat | grep -E "ANGLE|NearChuckle"
 
 - `CG_LIB_PATH is not set` → на Android не должен спрашивать: `DISABLE_CG=ON` форсится в `CMakeLists.txt`.
 - `FCData not found` → проверь путь в лаунчере; на Android 11+ дай разрешение *Все файлы*.
-- Чёрный экран → `adb logcat | grep -i egl` — смотри выбрался ли ANGLE; попробуй переключить на `GLES`.
+- Чёрный экран → `adb logcat | grep -i egl` — смотри ошибки EGL/контекста; попробуй снизить динамическое разрешение.
 - Лагает → включи *Динамическое разрешение*, снизь масштаб до 0.7, лимит 30 FPS.
 

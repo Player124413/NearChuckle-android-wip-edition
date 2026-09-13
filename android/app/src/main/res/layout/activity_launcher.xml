@@ -142,14 +142,6 @@
                     android:layout_marginTop="6dp">
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnAngle"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
-                        android:layout_weight="1"
-                        android:layout_height="wrap_content"
-                        android:text="ANGLE" />
-
-                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnGles"
                         style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="0dp"
@@ -370,7 +362,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="• ANGLE Vulkan вместо кривого GLES драйвера • ETC2/ASTC перепаковка • LTO + PGO • Потоковый LOD • 60-120 FPS лимит • Авто-детект Adreno/Mali/PowerVR"
+                    android:text="• Нативный GLES-драйвер устройства • ETC2/ASTC перепаковка • LTO • Потоковый LOD • 60-120 FPS лимит • Авто-детект Adreno/Mali/PowerVR"
                     android:textSize="10sp"
                     android:textColor="@color/on_surface"
                     android:layout_marginTop="6dp" />

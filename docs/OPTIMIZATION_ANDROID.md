@@ -7,21 +7,17 @@
 - **LTO Thin**: линковка всех .so с `-flto=thin -Wl,--icf=all` уменьшает размер кода, лучше инлайнит, экономит I-cache.
 - **-O3 + fast-math + omit-frame-pointer**: +15% FPS против -O2.
 - **-ffunction-sections -fdata-sections + --gc-sections**: вырезает мёртвый код CryEngine (много legacy).
-- **DISABLE_CG**: на Linux/Android Cg компилятор ломается под Wayland/ANGLE/новый драйвер. Отключаем, используем `ARBVP1`/`ARBFP1` fallback (предкомпилированные шейдеры из `FCData/ShaderCache.pak`).
+- **DISABLE_CG**: на Linux/Android Cg компилятор ломается под Wayland/новый драйвер. Отключаем, используем `ARBVP1`/`ARBFP1` fallback (предкомпилированные шейдеры из `FCData/ShaderCache.pak`).
 - **Android 16K page size**: `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON` для Android 15+.
 
-## 2. ANGLE (Google)
+## 2. Рендер (нативный GLES)
 
-- История: FarCry использует старый OpenGL 1.3-2.0 + extensions (NV_*, ARB_*). На современных Mali драйвер часто багает (декали Z-fighting, шейдеры падают).
-- ANGLE транслирует GLES2/3 → Vulkan → драйвер Vulkan почти всегда качественнее.
-- В манифесте: `<meta-data android:name="com.google.android.angle.GameAngle" android:value="vulkan" />`
-- В коде: `angle_manager.cpp` делает `dlopen("libEGL_angle.so")` и проверяет `eglQueryString(dpy, EGL_VENDOR)=="ANGLE"`; логирует бэкенд.
-- CMake: `USE_ANGLE=ON` (можно `OFF` для отладки), `FetchContent` опционально (`ANGLE_FETCH=ON` тянет исходники ~500MB). По умолчанию использует системный ANGLE (Android 12+).
-- Fallback: если ANGLE недоступен — линк к системному `libEGL.so`/`libGLESv2.so` (работает и на эмуляторе).
-
-Измерения:
-- Redmi Note 11 (Mali-G57) без ANGLE: 32 FPS, просадки, артефакты декалей.
-- С ANGLE Vulkan: 58 FPS, ровный фреймтайм, декали стабильны.
+- FarCry использует старый OpenGL 1.3-2.0 + extensions (NV_*, ARB_*). Рендер идёт через
+  нативный GLES-драйвер устройства (системные `libEGL.so`/`libGLESv2.so`).
+- Слой трансляции GLES→Vulkan (Google ANGLE) ранее вендорился в APK, но полностью удалён:
+  сборка из исходников в CI была слишком тяжёлой (~25+ мин на ран), а стабильность
+  выигрыша не гарантировала. Если на конкретном устройстве нужны фиксы Mali —
+  попробуйте понизить динамическое разрешение и FPS-лимит.
 
 ## 3. Рендер
 
@@ -49,7 +45,6 @@
 
 - Game Mode API (`game_mode_config.xml` standard/performance/battery) — система даёт больше CPU в performance.
 - При нагреве (thermal throttling) динамическое разрешение само сбросит нагрузку.
-- ANGLE Vulkan греет меньше GLES на Mali (проверено).
 
 ## 7. Сенсор
 
@@ -60,9 +55,8 @@
 ## 8. Проверка
 
 ```bash
-adb logcat | grep -E "ANGLE|NearChuckleOpt|Touch"
+adb logcat | grep -E "NearChuckleAndroid|NearChuckleOpt|Touch"
 # должно быть:
-# I/ANGLE: Loaded libEGL_angle.so ... ANGLE enabled
 # I/NearChuckleOpt: System RAM 4096 MB, Texture budget 96 MB, GPU Mali ...
 ```
 

@@ -15,7 +15,7 @@ import org.libsdl.app.SDLActivity;
  * GameActivity extends SDLActivity (SDL3).
  * Поверх SDL Surface накладывается TouchControlsOverlay.
  * Управляет жизненным циклом, передаёт настройки в native через Intent extras и NativeBridge,
- * включает иммерсивный фуллскрин, обрабатывает ANGLE.
+ * включает иммерсивный фуллскрин.
  *
  * Оптимизации:
  * - фиксируем landscape, immersive sticky
@@ -49,8 +49,7 @@ public class GameActivity extends SDLActivity {
         // Hide system UI
         hideSystemUI();
 
-        // Log ANGLE info
-        Log.i(TAG, "GameActivity onCreate renderer=" + getIntent().getStringExtra("renderer") + " ANGLE enabled via CMake USE_ANGLE=ON");
+        Log.i(TAG, "GameActivity onCreate renderer=" + getIntent().getStringExtra("renderer"));
     }
 
     private void tuneRefreshRate() {
@@ -67,11 +66,10 @@ public class GameActivity extends SDLActivity {
     @Override
     protected String[] getLibraries() {
         // Порядок важен: сначала зависимости, потом главный
-        // SDL3 создаст libSDL3.so, ANGLE даст libEGL_angle.so/libGLESv2_angle.so
-        // Наш враппер NearChuckle загрузит CrySystem etc
+        // SDL3 создаст libSDL3.so, наш враппер nearchuckle_android загрузит CrySystem etc
         return new String[] {
                 "SDL3",
-                "nearchuckle_android", // наш bridge + angle manager
+                "nearchuckle_android", // наш bridge + touch injector
                 // CryEngine libs будут подгружены динамически через CrySystem LoadDLL (libCrySystem.so etc)
         };
     }
@@ -86,20 +84,17 @@ public class GameActivity extends SDLActivity {
     protected String[] getArguments() {
         Intent i = getIntent();
         String folder = i.getStringExtra("game_folder");
-        String renderer = i.getStringExtra("renderer");
         int fps = i.getIntExtra("fps_limit", 60);
         float resScale = i.getFloatExtra("res_scale", 1.0f);
         boolean dynRes = i.getBooleanExtra("dyn_res", true);
 
-        // Map renderer string to engine cvar: r_Driver
+        // Renderer: always the device's native GLES driver (ANGLE removed;
+        // legacy "angle" preference from old installs is migrated by SettingsManager)
         String rDriver = "OpenGL";
-        if ("angle".equals(renderer)) rDriver = "OpenGL"; // still GL, but via ANGLE EGL
-        // Could also be Direct3D9 via DXVK->ANGLE? но пока только OGL
 
         // Build cmdline resembling FarCry: -DEVMODE maybe, -mod etc
         // Мы передадим через SDL: args array is passed as argv to native SDL_main
         // Engine reads from command line and then system.cfg
-        // Также сетим env для ANGLE
         return new String[] {
                 "FarCry",
                 "-r_driver", rDriver,
@@ -244,7 +239,7 @@ public class GameActivity extends SDLActivity {
         }
     }
 
-    // SDLActivity will call native SDL_main; we hook library load for ANGLE
+    // SDLActivity will call native SDL_main
     @Override
     protected void onDestroy() {
         super.onDestroy();
