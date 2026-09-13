@@ -140,10 +140,17 @@ endif()
 # For now, we provide a stub that expects parent build to have built libCrySystem etc as shared libs via ndk-build externally
 # In full CI, gradle will invoke cmake with -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake
 
-# Install
+# Install (fallback to lib if GNUInstallDirs not included)
+include(GNUInstallDirs OPTIONAL)
+if(NOT CMAKE_INSTALL_LIBDIR)
+    set(CMAKE_INSTALL_LIBDIR lib)
+endif()
 install(TARGETS nearchuckle_android DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
-# Generate ANGLE config JSON for runtime
+# Generate ANGLE config JSON for runtime (ANGLE_BACKEND fallback)
+if(NOT DEFINED ANGLE_BACKEND)
+    set(ANGLE_BACKEND "vulkan")
+endif()
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/angle_config.json.in ${CMAKE_CURRENT_BINARY_DIR}/angle_config.json @ONLY)
 
 message(STATUS "[NearChuckle] Android bridge configured: USE_ANGLE=${USE_ANGLE} ANDROID_ABI=${ANDROID_ABI} NDK=${ANDROID_NDK}")

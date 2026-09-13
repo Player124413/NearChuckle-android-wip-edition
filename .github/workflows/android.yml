@@ -106,10 +106,14 @@ jobs:
           fi
           echo "Gradle exit status $STATUS"
           if [ $STATUS -ne 0 ]; then
-            echo "=== Gradle log tail ==="
+            echo "=== Gradle log tail (500 lines) ==="
             tail -n 500 /tmp/gradle-${{ matrix.build_type }}.log || true
             echo "=== CMake logs ==="
             find app/build -name "CMakeOutput.log" -o -name "CMakeError.log" | xargs -I {} sh -c 'echo "--- {} ---"; cat {}' 2>&1 | head -n 800 || true
+            echo "=== Creating annotation for UI ==="
+            # Surface last 200 lines as GitHub annotation (visible without blob fetch)
+            LOG_TAIL=$(tail -n 80 /tmp/gradle-${{ matrix.build_type }}.log | tr '%' '%%' | tr '\n' ' ' | cut -c1-4000)
+            echo "::error title=Gradle assemble failed::${LOG_TAIL}"
           fi
           exit $STATUS
 
