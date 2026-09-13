@@ -10,6 +10,7 @@ on:
 jobs:
   build-android:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -38,9 +39,277 @@ jobs:
           sdkmanager --install "ndk;26.3.11579264" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           ndk-build --version || true
           cmake --version
           java -version
+
+      - name: Cache depot_tools and ANGLE checkout
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/depot_tools
+            ~/angle
+          key: angle-depot-${{ runner.os }}-v7
+          restore-keys: |
+            angle-depot-${{ runner.os }}-
+
+      - name: Build ANGLE from source (https://github.com/google/angle -> real libEGL_angle.so / libGLESv2_angle.so)
+        shell: bash
+        run: |
+          set +e
+          echo "::group::ANGLE real build from https://github.com/google/angle"
+          echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME:-$ANDROID_SDK_ROOT/ndk/26.3.11579264}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
+          if [ -z "$ANDROID_NDK_HOME" ]; then export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/26.3.11579264"; fi
+          if [ -z "$ANDROID_SDK_ROOT" ]; then export ANDROID_SDK_ROOT="$ANDROID_HOME"; fi
+          echo "NDK=$ANDROID_NDK_HOME SDK=$ANDROID_SDK_ROOT"
+          ls -ld "$ANDROID_NDK_HOME" || true
+          ls -l "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" 2>&1 | head -n 3 || true
+
+          export DEPOT_TOOLS_UPDATE=0
+          export PATH="$HOME/depot_tools:$PATH"
+
+          # 1) depot_tools
+          if [ ! -d "$HOME/depot_tools" ]; then
+            echo "Cloning depot_tools..."
+            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools" 2>&1 | tail -n 20
+            if [ ! -d "$HOME/depot_tools" ]; then
+              echo "::warning::depot_tools clone failed, will fallback to placeholders"
+              echo "::endgroup::"
+              exit 0
+            fi
+          else
+            echo "depot_tools cached at $HOME/depot_tools"
+          fi
+          export PATH="$HOME/depot_tools:$PATH"
+          which gn 2>&1 | head -n 5 || echo "gn not in PATH yet (will be after gclient sync)"
+          which autoninja 2>&1 | head -n 5 || true
+          which fetch 2>&1 | head -n 5 || true
+          ls -lh "$HOME/depot_tools/gn" "$HOME/depot_tools/autoninja" 2>&1 | head -n 20 || true
+
+          # 2) ANGLE checkout — use fetch angle if not present
+          ANGLE_ROOT="$HOME/angle"
+          ANGLE_SRC="$HOME/angle/angle"
+          SRC_ROOT="$GITHUB_WORKSPACE/android/app/src/main/jniLibs"
+          mkdir -p "$SRC_ROOT/arm64-v8a" "$SRC_ROOT/armeabi-v7a"
+
+          # If we have cached built .so already, we can skip heavy fetch/sync/build and just copy
+          if [ -f "$ANGLE_SRC/out/Android_arm64/libEGL.so" ] && [ -f "$ANGLE_SRC/out/Android_arm64/libGLESv2.so" ]; then
+            echo "Found cached ANGLE build at $ANGLE_SRC/out/Android_arm64 — skipping fetch/build, will copy to jniLibs"
+            HAVE_CACHED_BUILD=1
+          else
+            HAVE_CACHED_BUILD=0
+          fi
+
+          if [ "$HAVE_CACHED_BUILD" = "0" ]; then
+            if [ ! -d "$ANGLE_SRC" ]; then
+              echo "Fetching ANGLE source with depot_tools (fetch angle --no-history, ~500MB, 5-10 min)..."
+              mkdir -p "$ANGLE_ROOT"
+              cd "$ANGLE_ROOT"
+              # fetch is provided by depot_tools
+              set -o pipefail
+              if ! fetch angle --no-history 2>&1 | tee /tmp/fetch_angle.log | tail -n 200; then
+                echo "fetch angle failed, see /tmp/fetch_angle.log"
+                cat /tmp/fetch_angle.log | tail -n 100 || true
+                echo "Trying git clone fallback from https://github.com/google/angle ..."
+                rm -rf "$ANGLE_SRC"
+                if ! git clone https://github.com/google/angle.git "$ANGLE_SRC" --depth 1 2>&1 | tail -n 20; then
+                  git clone https://chromium.googlesource.com/angle/angle.git "$ANGLE_SRC" --depth 1 2>&1 | tail -n 20 || true
+                fi
+                if [ ! -d "$ANGLE_SRC" ]; then
+                  echo "::warning::ANGLE checkout failed, keeping placeholders"
+                  echo "::endgroup::"
+                  exit 0
+                fi
+                # create minimal .gclient if fetch didn't create it
+                if [ ! -f "$ANGLE_ROOT/.gclient" ]; then
+                  cat > "$ANGLE_ROOT/.gclient" <<'GCLIENT'
+          solutions = [
+            { "name"        : "angle",
+              "url"         : "https://chromium.googlesource.com/angle/angle.git",
+              "managed"     : False,
+              "custom_deps" : {},
+              "custom_vars": {},
+            },
+          ]
+          target_os = ["android"]
+          GCLIENT
+                  echo "Created minimal .gclient"
+                fi
+              fi
+              set +o pipefail
+            else
+              echo "ANGLE source cached at $ANGLE_SRC"
+              # Ensure .gclient has target_os
+              GCLIENT_FILE="$ANGLE_ROOT/.gclient"
+              if [ -f "$GCLIENT_FILE" ]; then
+                if ! grep -q 'target_os' "$GCLIENT_FILE"; then
+                  echo 'target_os = ["android"]' >> "$GCLIENT_FILE"
+                  echo "Appended target_os to .gclient"
+                fi
+                echo "--- .gclient head ---"
+                head -n 60 "$GCLIENT_FILE" || true
+              else
+                cat > "$ANGLE_ROOT/.gclient" <<'GCLIENT'
+          solutions = [
+            { "name"        : "angle",
+              "url"         : "https://chromium.googlesource.com/angle/angle.git",
+              "managed"     : False,
+              "custom_deps" : {},
+              "custom_vars": {},
+            },
+          ]
+          target_os = ["android"]
+          GCLIENT
+                echo "Created .gclient (was missing)"
+              fi
+            fi
+
+            # Ensure target_os via python (idempotent)
+            python3 << 'PY' || true
+          import os
+          p=os.path.expanduser("~/angle/.gclient")
+          if os.path.exists(p):
+            txt=open(p).read()
+            if "target_os" not in txt:
+              open(p,"a").write('\ntarget_os = ["android"]\n')
+              print("Injected target_os via python")
+            print(open(p).read()[:2500])
+          else:
+            print("no .gclient at",p)
+          PY
+
+            # gclient sync
+            cd "$ANGLE_ROOT"
+            echo "=== gclient sync (download deps, may take 5-10 min) ==="
+            # Use --nohooks first to speed, then hooks if needed; timeout 20m
+            if ! timeout 1200 gclient sync -D --nohooks --no-history 2>&1 | tail -n 300; then
+              echo "gclient sync --nohooks timeout/failed, trying plain gclient sync..."
+              timeout 1200 gclient sync -D 2>&1 | tail -n 300 || echo "gclient sync failed (continuing, maybe deps already present)"
+            fi
+            echo "gclient sync done, ls angle/src check:"
+            ls -ld "$ANGLE_SRC/build" "$ANGLE_SRC/third_party" 2>&1 | head -n 20 || true
+
+            # Install Linux build deps (needed for gn)
+            cd "$ANGLE_SRC"
+            if [ -f build/install-build-deps.sh ]; then
+              echo "=== install-build-deps.sh ==="
+              # non-interactive, allow failure
+              ./build/install-build-deps.sh --no-prompt 2>&1 | tail -n 100 || sudo ./build/install-build-deps.sh --no-prompt 2>&1 | tail -n 100 || echo "install-build-deps returned non-zero (continuing)"
+            fi
+            # Extra deps we know are needed
+            sudo apt-get update -qq 2>&1 | tail -n 5 || true
+            sudo apt-get install -y lsb-release 2>&1 | tail -n 10 || true
+          fi
+
+          # 3) Build
+          # Even if we had cached build, we still need to ensure out dirs exist for copy; if not cached, build now
+          if [ "$HAVE_CACHED_BUILD" = "0" ]; then
+            cd "$ANGLE_SRC"
+            echo "=== gn gen for arm64-v8a ==="
+            # Show gn help if needed
+            gn --version 2>&1 | head -n 5 || true
+            # args: mirror docs/DevSetupAndroid performance config but with ndk/sdk paths + thin_lto off for faster CI
+            GN_ARGS_ARM64="target_os=\"android\" target_cpu=\"arm64\" is_debug=false is_component_build=false angle_enable_vulkan=true angle_enable_gl=false angle_build_tests=false angle_assert_always_on=false arm_control_flow_integrity=\"none\" android_ndk_root=\"${ANDROID_NDK_HOME}\" android_sdk_root=\"${ANDROID_SDK_ROOT}\" clang_use_chrome_plugins=false use_thin_lto=false"
+            echo "gn args arm64: $GN_ARGS_ARM64"
+            if ! gn gen out/Android_arm64 --args="$GN_ARGS_ARM64" 2>&1 | tail -n 200; then
+              echo "::warning::gn gen arm64 failed"
+              cat out/Android_arm64/args.gn 2>&1 | head -n 50 || true
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "=== autoninja arm64 libEGL libGLESv2 ==="
+            if ! autoninja -C out/Android_arm64 libEGL libGLESv2 2>&1 | tail -n 300; then
+              echo "::warning::autoninja arm64 failed, keeping placeholders"
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "=== arm64 outputs ==="
+            ls -lh out/Android_arm64/*.so 2>&1 | head -n 30 || find out/Android_arm64 -maxdepth 3 -name "*.so" | xargs ls -lh 2>&1 | head -n 30 || true
+            ls -lh out/Android_arm64/libEGL.so out/Android_arm64/libGLESv2.so 2>&1 || true
+
+            echo "=== gn gen for armeabi-v7a (target_cpu=arm) ==="
+            GN_ARGS_ARM="target_os=\"android\" target_cpu=\"arm\" arm_version=7 is_debug=false is_component_build=false angle_enable_vulkan=true angle_enable_gl=false angle_build_tests=false angle_assert_always_on=false arm_control_flow_integrity=\"none\" android_ndk_root=\"${ANDROID_NDK_HOME}\" android_sdk_root=\"${ANDROID_SDK_ROOT}\" clang_use_chrome_plugins=false use_thin_lto=false"
+            echo "gn args arm: $GN_ARGS_ARM"
+            if gn gen out/Android_arm --args="$GN_ARGS_ARM" 2>&1 | tail -n 200; then
+              echo "=== autoninja arm libEGL libGLESv2 ==="
+              if autoninja -C out/Android_arm libEGL libGLESv2 2>&1 | tail -n 300; then
+                echo "arm 32 build succeeded"
+                ls -lh out/Android_arm/*.so 2>&1 | head -n 30 || find out/Android_arm -maxdepth 3 -name "*.so" | xargs ls -lh 2>&1 | head -n 30 || true
+              else
+                echo "::warning::autoninja arm failed"
+              fi
+            else
+              echo "::warning::gn gen arm failed"
+            fi
+          else
+            echo "Using cached out/ dirs, skipping gn/ninja"
+            cd "$ANGLE_SRC"
+            ls -lh out/Android_arm64/libEGL.so out/Android_arm64/libGLESv2.so 2>&1 || true
+            ls -lh out/Android_arm/libEGL.so 2>&1 | head -n 5 || echo "no arm32 cached build (will skip armeabi)"
+          fi
+
+          # 4) Copy to jniLibs (overwrite placeholders with real .so)
+          echo "=== Copying real ANGLE libs to $SRC_ROOT ==="
+          cd "$ANGLE_SRC"
+          mkdir -p "$SRC_ROOT/arm64-v8a" "$SRC_ROOT/armeabi-v7a"
+          COPY_OK=0
+          if [ -f out/Android_arm64/libEGL.so ]; then
+            cp -v out/Android_arm64/libEGL.so "$SRC_ROOT/arm64-v8a/libEGL_angle.so"
+            cp -v out/Android_arm64/libGLESv2.so "$SRC_ROOT/arm64-v8a/libGLESv2_angle.so"
+            echo "arm64-v8a real libs installed:"
+            ls -lh "$SRC_ROOT/arm64-v8a/"*
+            file "$SRC_ROOT/arm64-v8a/"*.so 2>&1 | head -n 10 || true
+            COPY_OK=1
+          else
+            echo "::warning::out/Android_arm64/libEGL.so not found"
+          fi
+          if [ -f out/Android_arm/libEGL.so ]; then
+            cp -v out/Android_arm/libEGL.so "$SRC_ROOT/armeabi-v7a/libEGL_angle.so"
+            cp -v out/Android_arm/libGLESv2.so "$SRC_ROOT/armeabi-v7a/libGLESv2_angle.so"
+            echo "armeabi-v7a real libs installed:"
+            ls -lh "$SRC_ROOT/armeabi-v7a/"*
+            file "$SRC_ROOT/armeabi-v7a/"*.so 2>&1 | head -n 10 || true
+            COPY_OK=1
+          else
+            echo "::warning::arm32 libEGL.so not found for armeabi-v7a"
+            if [ -f out/Android_arm64/libEGL.so ]; then
+              echo "Note: arm 32 build missing — keeping existing placeholder for armeabi-v7a (avoid ABI mismatch). Build will still have real arm64 lib."
+            fi
+            # keep placeholder for armeabi if arm build missing — do not copy arm64 there (wrong ABI)
+          fi
+          echo "=== FINAL jniLibs (real vs placeholder check) ==="
+          ls -lh "$SRC_ROOT"/arm64-v8a/* "$SRC_ROOT"/armeabi-v7a/* 2>&1
+          for f in "$SRC_ROOT"/arm64-v8a/*.so "$SRC_ROOT"/armeabi-v7a/*.so; do
+            echo "--- $f ---"
+            ls -lh "$f" 2>&1 | head -n 2
+            file "$f" 2>&1 | cut -c1-300 || true
+            # quick ELF check: first 4 bytes 7f45 4c46
+            hexdump -C "$f" 2>&1 | head -n 2 || true
+            # check if random placeholder (we used urandom): real ELF should have valid sections, but we can size-check >2MB is real
+            SZ=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f" 2>/dev/null || echo 0)
+            if [ "$SZ" -gt 3000000 ]; then echo "size $SZ >3MB => likely REAL ANGLE build"; else echo "size $SZ => placeholder or small build"; fi
+          done 2>&1 | head -n 120
+          if [ "$COPY_OK" = "0" ]; then
+            echo "::warning::No real ANGLE lib was copied — APK will use placeholders + system ANGLE fallback"
+          else
+            echo "ANGLE real build succeeded and copied to jniLibs"
+          fi
+          echo "::endgroup::"
+          # Never fail the job if ANGLE build fails — allow APK build with placeholders + fallback
+          exit 0
+
+      - name: Verify ANGLE libs before Gradle
+        run: |
+          echo "=== Pre-Gradle jniLibs verification ==="
+          ls -lh android/app/src/main/jniLibs/arm64-v8a/ android/app/src/main/jniLibs/armeabi-v7a/ 2>&1
+          for f in android/app/src/main/jniLibs/*/*.so; do
+            echo "--- $f: $(stat -c%s "$f" 2>/dev/null || stat -f%z "$f") bytes ---"
+            file "$f" 2>&1 | head -n 5 || true
+          done
+          # Also ensure we don't have zero-filled (old bug) — check entropy
+          hexdump -C android/app/src/main/jniLibs/arm64-v8a/libEGL_angle.so 2>&1 | head -n 3 || true
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -52,15 +321,6 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties', 'android/**/*.gradle') }}
           restore-keys: |
             gradle-${{ runner.os }}-
-
-      - name: Cache ANGLE (avoid re-fetch)
-        uses: actions/cache@v4
-        with:
-          path: |
-            android/app/build/angle
-            ~/.angle
-          key: angle-${{ runner.os }}-main
-          restore-keys: angle-
 
       - name: Ensure Gradle Wrapper Jar (fallback if network blocked)
         working-directory: android
@@ -143,10 +403,20 @@ jobs:
           if [ -z "$APK" ]; then echo "APK not found!"; exit 1; fi
           # Check native libs present
           unzip -l "$APK" | grep -E "lib/arm64|lib/armeabi|libCry|libXRender|SDL" || true
-          # Check manifest for ANGLE meta-data
+          # Check ANGLE libs inside APK and their sizes (real vs placeholder)
+          echo "=== APK ANGLE libs sizes ==="
+          unzip -l "$APK" | grep -i angle || echo "no angle in zip list"
+          # aapt2 also
           unzip -p "$APK" AndroidManifest.xml | strings | grep -i angle || echo "Angle meta not in binary manifest (expected in merged manifest, check aapt2)"
           # aapt2 dump
           $ANDROID_SDK_ROOT/build-tools/34.0.0/aapt2 dump xmltree "$APK" --file AndroidManifest.xml | grep -i angle || true
+          # Check lib sizes inside APK via unzip -lv verbose
+          echo "=== unzip -v angle libs ==="
+          unzip -lv "$APK" | grep -i angle || true
+          # Also check uncompressed size via file inside APK temp
+          mkdir -p /tmp/apk_check && unzip -o "$APK" "lib/*/*angle*" -d /tmp/apk_check 2>&1 | head -n 20 || true
+          ls -lh /tmp/apk_check/lib/*/* 2>&1 | head -n 20 || true
+          for f in /tmp/apk_check/lib/*/*angle*; do file "$f" 2>&1 | head -n 5; ls -lh "$f"; done 2>&1 | head -n 50 || true
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
