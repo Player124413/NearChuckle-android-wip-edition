@@ -15,7 +15,10 @@ def sdl3SourceDir = file("${rootDir}/.sdl3/SDL3-${sdl3Version}")
 // libogg/libvorbis (static, linked into libCrySoundSystem.so).
 // The engine's sound system dlopen()s OpenAL and needs OGG/Vorbis for
 // music playback - without these libCrySoundSystem.so cannot load.
-def openalVersion = "1.25.1"
+// NOTE: openal-soft is pinned to 1.23.1 - the 1.24+/1.25 series requires
+// C++23 (std::format, lexicographical_compare_three_way) which the NDK
+// r26 clang/libc++ cannot provide.
+def openalVersion = "1.23.1"
 def oggVersion = "1.3.5"
 def vorbisVersion = "1.3.7"
 def audioDepsDir = file("${rootDir}/.audio-deps")

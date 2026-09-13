@@ -71,7 +71,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: android/.audio-deps
-          key: audio-deps-openal-1.25.1-ogg-1.3.5-vorbis-1.3.7
+          key: audio-deps-openal-1.23.1-ogg-1.3.5-vorbis-1.3.7
 
       - name: Cache native build (ccache)
         uses: actions/cache@v4

@@ -56,8 +56,10 @@ add_subdirectory("${SDL3_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/SDL3-build" EXCLUDE_F
 # ---------------------------------------------------------------------------
 # NOTE: GitHub auto-archive tarballs strip the leading "v" from the tag in
 # the extracted directory name (v1.3.5 -> ogg-1.3.5/).
+# openal-soft is pinned to 1.23.1: the 1.24+/1.25 series needs C++23
+# (std::format etc.) which NDK r26's libc++ does not provide.
 set(AUDIO_DEPS_DIR "${CMAKE_SOURCE_DIR}/../../../../.audio-deps")
-set(OPENAL_DIR  "${AUDIO_DEPS_DIR}/openal-soft-1.25.1")
+set(OPENAL_DIR  "${AUDIO_DEPS_DIR}/openal-soft-1.23.1")
 set(OGG_DIR     "${AUDIO_DEPS_DIR}/ogg-1.3.5")
 set(VORBIS_DIR  "${AUDIO_DEPS_DIR}/vorbis-1.3.7")
 foreach(_d "${OPENAL_DIR}" "${OGG_DIR}" "${VORBIS_DIR}")
