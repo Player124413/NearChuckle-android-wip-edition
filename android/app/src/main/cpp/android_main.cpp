@@ -1,4 +1,6 @@
 #include <android/log.h>
+#include <cstdlib>
+#include <cstring>
 #if __has_include(<SDL3/SDL.h>)
 #include <SDL3/SDL.h>
 #elif __has_include(<SDL.h>)
