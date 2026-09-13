@@ -118,14 +118,20 @@ target_link_options(nearchuckle_android PRIVATE
     -flto=thin
 )
 
-target_link_libraries(nearchuckle_android
-    ${ANDROID_LIB}
-    ${LOG_LIB}
-    ${EGL_LIB}
-    ${GLESv2_LIB}
-    # SDL3 intentionally not linked here for CI stub builds - JNI bridge uses header-only push
-    # Real Android builds will link via SDL3::SDL3 if available (optional)
-)
+set(_NEAR_LINK_LIBS "")
+foreach(_lib IN ITEMS ANDROID_LIB LOG_LIB EGL_LIB GLESv2_LIB)
+    if(${_lib} AND NOT ${_lib} MATCHES "NOTFOUND")
+        list(APPEND _NEAR_LINK_LIBS ${${_lib}})
+    else()
+        message(STATUS "[nearchuckle_android] Skipping ${_lib} (NOTFOUND/empty)")
+    endif()
+endforeach()
+if(_NEAR_LINK_LIBS)
+    target_link_libraries(nearchuckle_android PRIVATE ${_NEAR_LINK_LIBS})
+else()
+    message(WARNING "[nearchuckle_android] No Android system libs found - linking with -landroid -lEGL -lGLESv2 as fallback")
+    target_link_libraries(nearchuckle_android PRIVATE android EGL GLESv2 log)
+endif()
 
 if(USE_ANGLE AND TARGET libANGLE)
     target_link_libraries(nearchuckle_android libANGLE libGLESv2 libEGL)
