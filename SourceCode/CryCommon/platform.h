@@ -86,6 +86,10 @@ typedef void *EVENT_HANDLE;
 #include <Linux32Specific.h>
 #endif
 
+#if defined(ANDROID)
+#include <AndroidSpecific.h>
+#endif
+
 #include "stdio.h"
 
 #define CPUF_SSE   1

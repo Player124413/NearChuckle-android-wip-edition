@@ -7,12 +7,16 @@ endif()
 
 option(DISABLE_CG "DISABLE CG Compiler shaders" OFF)
 
+# On Android, force DISABLE_CG (no libCg.so) and allow GLES via ANGLE
+if(ANDROID)
+    set(DISABLE_CG ON CACHE BOOL "Disable Cg on Android" FORCE)
+    message(STATUS "[XRenderOGL] Android: forcing DISABLE_CG=ON, GLES via ANGLE/system")
+endif()
+
 if (NOT MSVC AND NOT DISABLE_CG)
 #set(CG_LIB_PATH "/path/to/cg/lib")
 if ("${CG_LIB_PATH}" STREQUAL "")
-		message( FATAL_ERROR "CG_LIB_PATH is not set.
-You must set it to a path containing libCgGL.so and libCg.so.
-You can download the Cg library at https://developer.nvidia.com/cg-toolkit-download" )
+        message( FATAL_ERROR "CG_LIB_PATH is not set.\nYou must set it to a path containing libCgGL.so and libCg.so.\nYou can download the Cg library at https://developer.nvidia.com/cg-toolkit-download" )
 endif()
 endif() #NOT MSVC
 
@@ -21,6 +25,9 @@ if (DISABLE_CG)
 add_definitions(-DDISABLE_CG)
 endif()
 
+if(ANDROID)
+    add_definitions(-DANDROID -DGLES -DUSE_ANGLE)
+endif()
 
 set(SRC_FILES
     "../Common/3DUtils.cpp"
@@ -176,11 +183,31 @@ if (MSVC)
         "cgGL.lib"
     )
 else()
-    set(SYSTEM_DEPS
-        GLU
-    )
+    if(ANDROID)
+        # On Android link EGL/GLESv2 (via ANGLE if available) + android log
+        find_library(ANDROID_LIB android)
+        find_library(LOG_LIB log)
+        set(SYSTEM_DEPS
+            EGL
+            GLESv2
+            GLESv3
+            ${ANDROID_LIB}
+            ${LOG_LIB}
+        )
+        # ANGLE libs will be provided via nearchuckle_android wrapper if USE_ANGLE
+        if(USE_ANGLE)
+            # No extra link needed here, nearchuckle_android already handles ANGLE; we just ensure EGL comes from ANGLE
+            message(STATUS "[XRenderOGL] Linking for Android with EGL/GLES (ANGLE Vulkan backend if present)")
+        endif()
+    else()
+        set(SYSTEM_DEPS
+            GLU
+        )
+    endif()
     if (NOT DISABLE_CG)
-    set (SYSTEM_DEPS ${SYSTEM_DEPS} Cg CgGL)
+        if(NOT ANDROID)
+            set (SYSTEM_DEPS ${SYSTEM_DEPS} Cg CgGL)
+        endif()
     endif()
 endif()
 
@@ -188,3 +215,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${ARCH_LIBS}
     ${SYSTEM_DEPS}
 )
+
+# Android: enable LTO and section GC for renderer too
+if(ANDROID)
+    target_compile_options(${PROJECT_NAME} PRIVATE -O3 -flto=thin -ffast-math -fomit-frame-pointer -ffunction-sections -fdata-sections -Wno-error)
+    target_link_options(${PROJECT_NAME} PRIVATE -Wl,--gc-sections -Wl,--icf=all -flto=thin)
+endif()

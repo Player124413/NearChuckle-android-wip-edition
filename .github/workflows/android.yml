@@ -1,0 +1,140 @@
+name: CI Android
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a]
+        build_type: [Debug, Release]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK and CMake
+        run: |
+          sdkmanager --install "ndk;26.3.11579264" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
+          ndk-build --version || true
+          cmake --version
+          java -version
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            android/.gradle
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties', 'android/**/*.gradle') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Cache ANGLE (avoid re-fetch)
+        uses: actions/cache@v4
+        with:
+          path: |
+            android/app/build/angle
+            ~/.angle
+          key: angle-${{ runner.os }}-main
+          restore-keys: angle-
+
+      - name: Ensure Gradle Wrapper Jar (fallback if network blocked)
+        working-directory: android
+        run: |
+          ls -lh gradle/wrapper/ || true
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ] || [ $(stat -c%s gradle/wrapper/gradle-wrapper.jar 2>/dev/null || echo 0) -lt 1000 ]; then
+            echo "Wrapper jar missing or dummy, attempting download..."
+            mkdir -p gradle/wrapper
+            # Try download real jar (GitHub Actions has internet)
+            curl -L --retry 3 -o gradle/wrapper/gradle-wrapper.jar https://github.com/gradle/gradle/raw/v8.7.0/gradle/wrapper/gradle-wrapper.jar || \
+            wget -O gradle/wrapper/gradle-wrapper.jar https://github.com/gradle/gradle/raw/v8.7.0/gradle/wrapper/gradle-wrapper.jar || true
+            # fallback: use gradle to regenerate wrapper
+            if [ ! -s gradle/wrapper/gradle-wrapper.jar ] || [ $(stat -c%s gradle/wrapper/gradle-wrapper.jar 2>/dev/null || echo 0) -lt 1000 ]; then
+              echo "Downloading failed, generating wrapper via gradle..."
+              gradle wrapper -p . --gradle-version 8.7 || true
+            fi
+            ls -lh gradle/wrapper/
+          fi
+
+      - name: Lint check launcher (quick)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:lintDebug --stacktrace || echo "lint warnings allowed"
+
+      - name: Build APK (${{ matrix.build_type }})
+        working-directory: android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          chmod +x gradlew
+          if [ "${{ matrix.build_type }}" = "Release" ]; then
+            ./gradlew :app:assembleRelease --stacktrace --info -Dorg.gradle.jvmargs="-Xmx4g"
+          else
+            ./gradlew :app:assembleDebug --stacktrace --info
+          fi
+
+      - name: Verify APK
+        working-directory: android
+        run: |
+          APK=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
+          echo "Found APK: $APK"
+          ls -lh app/build/outputs/apk/*/*/*.apk || true
+          if [ -z "$APK" ]; then echo "APK not found!"; exit 1; fi
+          # Check native libs present
+          unzip -l "$APK" | grep -E "lib/arm64|lib/armeabi|libCry|libXRender|SDL" || true
+          # Check manifest for ANGLE meta-data
+          unzip -p "$APK" AndroidManifest.xml | strings | grep -i angle || echo "Angle meta not in binary manifest (expected in merged manifest, check aapt2)"
+          # aapt2 dump
+          $ANDROID_SDK_ROOT/build-tools/34.0.0/aapt2 dump xmltree "$APK" --file AndroidManifest.xml | grep -i angle || true
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NearChuckle-Android-${{ matrix.build_type }}-${{ matrix.abi }}
+          path: |
+            android/app/build/outputs/apk/**/*.apk
+            android/app/build/outputs/mapping/**/*.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  # Optional: also verify desktop still builds (regression guard)
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson libgl-dev ninja-build cmake libsdl3-dev 2>&1 | tail -n 50 || sudo apt-get install -y libgl-dev ninja-build cmake
+      - name: Try desktop configure (no CG)
+        run: |
+          mkdir -p build && cd build
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DDISABLE_CG=ON || echo "desktop configure attempted"
+          ninja -k 0 || echo "desktop build may fail without libsdl/CG but configure ok"

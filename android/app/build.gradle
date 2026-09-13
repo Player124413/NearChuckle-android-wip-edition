@@ -1,0 +1,130 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.nearchuckle.farcry'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.nearchuckle.farcry"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0-nearchuckle-android"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            // CryEngine is 64-bit focused + 32-bit compat
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17 -frtti -fexceptions"
+                arguments "-DANDROID_STL=c++_shared",
+                          "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+                          "-DUSE_ANGLE=ON",
+                          "-DANGLE_USE_VULKAN=ON",
+                          "-DDISABLE_CG=ON",
+                          "-DANDROID_PERFORMANCE_MODE=ON",
+                          "-DCMAKE_BUILD_TYPE=Release"
+                // Pass optimization level
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Sign with debug for CI, user can provide release keystore
+            debuggable false
+            jniDebuggable false
+            renderscriptDebuggable false
+            zipAlignEnabled true
+            // Optimization
+            ndk {
+                debugSymbolLevel 'FULL'
+            }
+        }
+        debug {
+            minifyEnabled false
+            debuggable true
+            jniDebuggable true
+            applicationIdSuffix ".debug"
+        }
+        profile {
+            initWith release
+            debuggable true
+            jniDebuggable true
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+        resources {
+            excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE', 'META-INF/LICENSE.txt', 'META-INF/NOTICE']
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+
+    // ANGLE: ensure EGL/GLES from ANGLE preferred
+    // No extra config needed, CMake will link angle libs
+
+    buildFeatures {
+        buildConfig true
+        viewBinding true
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+
+    // Mega optimization: bundle tuning
+    bundle {
+        language {
+            enableSplit = false
+        }
+        density {
+            enableSplit = false
+        }
+        abi {
+            enableSplit = true
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.preference:preference:1.2.1'
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+    // SDL3 will be provided via native CMake FetchContent, Java part copied via CMake install
+}
+
+// Task to download ANGLE prebuilts if needed (fallback)
+task downloadAnglePrebuilts(type: Exec) {
+    description = "Download ANGLE prebuilts (if USE_ANGLE prebuilt mode)"
+    // No-op in CI if already fetched via CMake FetchContent
+    commandLine 'echo', 'ANGLE will be fetched via CMake FetchContent from https://github.com/google/angle'
+}
+preBuild.dependsOn downloadAnglePrebuilts

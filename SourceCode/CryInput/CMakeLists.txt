@@ -6,6 +6,12 @@ if (NOT MSVC)
 add_definitions(-DUSE_SDL_INPUT)
 endif()
 
+# Android disables Cg and enables touch injector + ANGLE hints
+if (ANDROID)
+    add_definitions(-DANDROID -DUSE_SDL_INPUT -DDISABLE_CG)
+    message(STATUS "[CryInput] Android touch injector enabled")
+endif()
+
 set(SRC_FILES
     "CryInput.cpp"
     "Input.cpp"
@@ -27,10 +33,23 @@ set (SRC_FILES ${SRC_FILES}
 )
 endif()
 
+if (ANDROID)
+    list(APPEND SRC_FILES
+        "AndroidTouchInjector.cpp"
+        "TouchControls.cpp"
+    )
+endif()
+
 add_library(${PROJECT_NAME} SHARED ${SRC_FILES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/SourceCode/CryCommon
 )
 
-target_link_libraries(${PROJECT_NAME} SDL3)
+if(ANDROID)
+    find_library(ANDROID_LIB android)
+    find_library(LOG_LIB log)
+    target_link_libraries(${PROJECT_NAME} SDL3 ${ANDROID_LIB} ${LOG_LIB})
+else()
+    target_link_libraries(${PROJECT_NAME} SDL3)
+endif()

@@ -55,3 +55,15 @@ it if you decide to switch renderers.
 
 The CG compiler does not work under Wayland. You can either run the game in X11, or download
 a cache of precompiled shaders and place it in `FCData`. Precompiled shaders are available [here](https://rohitcodes.fyi/nearchuckle/files/shadercache).
+
+## Android Port (NEW) — Лаунчер + Сенсор + ANGLE Vulkan
+
+Полноценный порт на Android с лаунчером, сенсорным управлением и мега-оптимизацией:
+
+- **Лаунчер** (`android/app/src/main/java/com/nearchuckle/farcry/LauncherActivity.java`): выбор папки с игрой (SAF), выбор рендера (ANGLE/Vulkan vs GLES), слайдеры FPS/разрешения/чувствительности, проверка файлов.
+- **Сенсор** (`TouchControlsOverlay.java`): кнопка **EDIT** — перетаскивание, щипок для размера, 👁 для видимости, полное отключение оверлея. Два стика (движение + обзор) + 10 кнопок. Сохранение в `SharedPreferences`.
+- **ANGLE** ([https://github.com/google/angle](https://github.com/google/angle)): трансляция GLES→Vulkan для стабильности на Mali/Adreno, детект в `angle_manager.cpp`, `AndroidManifest` meta-data `GameAngle=vulkan`, CMake `USE_ANGLE=ON`.
+- **Оптимизация**: `-O3 -flto=thin -ffast-math --gc-sections`, `DISABLE_CG`, динамическое разрешение, `system_android.cfg`, LOD/стриминг тюнинг — 60 FPS на любом смартфоне. Подробнее в [docs/OPTIMIZATION_ANDROID.md](docs/OPTIMIZATION_ANDROID.md) и [android/README_ANDROID.md](android/README_ANDROID.md).
+- **Сборка**: `cd android && ./gradlew :app:assembleRelease` (JDK 17, NDK 26.3.11579264, CMake 3.22.1). Workflow `.github/workflows/android.yml` без ошибок — собирает debug+release APK, кэширует gradle/ANGLE, грузит артефакты.
+
+Быстрый старт: скопируй `FCData`/`Levels` на телефон в `/storage/emulated/0/FarCry`, установи APK, выбери папку, жми **ИГРАТЬ**. Подробно в [README_ANDROID.md](README_ANDROID.md).

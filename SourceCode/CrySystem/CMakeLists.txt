@@ -79,6 +79,14 @@ set(SRC_FILES
     "zlib/zutil.c"
 )
 
+if(ANDROID)
+    list(APPEND SRC_FILES
+        "AndroidOptimization.cpp"
+        "AndroidStorage.cpp"
+    )
+    add_definitions(-DANDROID)
+endif()
+
 if (MSVC)
     set(SRC_FILES ${SRC_FILES}
         "LuaDebugger/FileTree.cpp"
@@ -95,6 +103,16 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/SourceCode/CryCommon
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    ${SYSTEM_DEPS} SDL3
-)
+if(ANDROID)
+    find_library(ANDROID_LIB android)
+    find_library(LOG_LIB log)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        ${SYSTEM_DEPS} SDL3 ${ANDROID_LIB} ${LOG_LIB}
+    )
+    target_compile_options(${PROJECT_NAME} PRIVATE -O3 -flto=thin -ffast-math -fomit-frame-pointer -ffunction-sections -fdata-sections)
+    target_link_options(${PROJECT_NAME} PRIVATE -Wl,--gc-sections -Wl,--icf=all -flto=thin)
+else()
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        ${SYSTEM_DEPS} SDL3
+    )
+endif()
