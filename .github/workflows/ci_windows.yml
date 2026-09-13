@@ -1,6 +1,8 @@
 name: CI Windows
 
-on: [push, pull_request]
+on:
+  workflow_dispatch:
+  # disabled on push/PR — only CI Android runs now (user request 2026-09-13)
 
 jobs:
   pre_job:
