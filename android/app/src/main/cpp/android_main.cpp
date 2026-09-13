@@ -12,11 +12,13 @@
 #include "angle_manager.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "NearChuckleAndroid", __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, "NearChuckleAndroid", __VA_ARGS__)
 
 // This is the SDL_main entry that the engine's Main.cpp will provide.
 // For Android we wrap it to setup ANGLE + chdir to game folder before calling real main.
 
-extern int FarCry_SDL_main(int argc, char** argv);
+// Weak symbol — if CryEngine not linked (CI stub build), fallback to 0 instead of linker error
+extern "C" int FarCry_SDL_main(int argc, char** argv) __attribute__((weak));
 
 // SDL defines SDL_main as macro; we provide our own that SDLActivity will call via JNI
 extern "C" int SDL_main(int argc, char* argv[]) {
@@ -39,8 +41,14 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     // Chdir to game folder is done via Java NativeBridge nativeGetGameFolder + chdir in SystemInit
 
     LOGI("Forwarding to FarCry main...");
-    int ret = FarCry_SDL_main(argc, argv);
-    LOGI("FarCry exited with %d", ret);
+    int ret = 0;
+    if (FarCry_SDL_main) {
+        ret = FarCry_SDL_main(argc, argv);
+        LOGI("FarCry exited with %d", ret);
+    } else {
+        LOGW("FarCry_SDL_main not linked (CI stub) — skipping engine main, returning 0");
+        ret = 0;
+    }
     AngleManager::Shutdown();
     return ret;
 }
