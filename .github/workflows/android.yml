@@ -133,21 +133,28 @@ jobs:
       - name: Diagnose failure (annotation + logs to summary, no blob needed)
         if: failure()
         run: |
+          LOG=/tmp/gradle-${{ matrix.build_type }}.log
           echo "=== DIAGNOSE ==="
-          tail -n 200 /tmp/gradle-${{ matrix.build_type }}.log 2>&1 | tail -n 200 || echo "no gradle log"
+          tail -n 200 "$LOG" 2>/dev/null | tail -n 200 || echo "no gradle log"
           {
             echo "## Gradle failure tail (${{ matrix.build_type }})"
             echo '```'
-            tail -n 250 /tmp/gradle-${{ matrix.build_type }}.log 2>&1 | tail -n 250 || echo "no log"
+            tail -n 250 "$LOG" 2>&1 | tail -n 250 || echo "no log"
             echo '```'
-            echo "## Grep errors"
+            echo "## CMake Error block"
             echo '```'
-            grep -i -E "error:|FAILED|ninja:|clang|fatal" /tmp/gradle-${{ matrix.build_type }}.log 2>&1 | tail -n 80 || echo "no error lines"
+            grep -n -B2 -A15 -i "CMake Error" "$LOG" 2>/dev/null | head -n 120 || echo "no cmake error lines"
+            echo '```'
+            echo "## Native error lines (no configure-test noise)"
+            echo '```'
+            grep -i -E "error:|FAILED:|ninja: build stopped|fatal" "$LOG" 2>/dev/null | grep -v -i "performing test" | head -n 60 || true
             echo '```'
           } >> $GITHUB_STEP_SUMMARY || true
-          ERR_LINES=$(grep -i -E "error:|FAILED|ninja:" /tmp/gradle-${{ matrix.build_type }}.log 2>&1 | tail -n 10 | tr '\n' ';' | cut -c1-3000 | sed 's/%/%25/g; s/\r//g')
-          if [ -n "$ERR_LINES" ]; then echo "::error title=Native build error::$ERR_LINES"; else TAIL_ONE_LINE=$(tail -n 30 /tmp/gradle-${{ matrix.build_type }}.log 2>&1 | tr '\n' ';' | cut -c1-3000 | sed 's/%/%25/g'); echo "::error title=Gradle ${{ matrix.build_type }} failed::$TAIL_ONE_LINE"; fi
-          grep -n -i -E "error:" /tmp/gradle-${{ matrix.build_type }}.log 2>&1 | head -n 100 || true
+          CMAKE_ERR=$(grep -A12 -i "CMake Error" "$LOG" 2>/dev/null | head -n 40 | tr '\n' ';' | cut -c1-3500 | sed 's/%/%25/g; s/\r//g')
+          if [ -n "$CMAKE_ERR" ]; then echo "::error title=CMake configure error::${CMAKE_ERR}"; fi
+          ERR_LINES=$(grep -i -E "error:|FAILED:|ninja: build stopped" "$LOG" 2>&1 | grep -v -i "performing test" | tail -n 15 | tr '\n' ';' | cut -c1-3000 | sed 's/%/%25/g; s/\r//g')
+          if [ -n "$ERR_LINES" ]; then echo "::error title=Native build error::${ERR_LINES}"; else TAIL_ONE_LINE=$(tail -n 30 "$LOG" 2>&1 | tr '\n' ';' | cut -c1-3000 | sed 's/%/%25/g'); echo "::error title=Gradle ${{ matrix.build_type }} failed::$TAIL_ONE_LINE"; fi
+          grep -n -i -E "error:" "$LOG" 2>&1 | head -n 100 || true
 
       - name: Verify APK
         working-directory: android
