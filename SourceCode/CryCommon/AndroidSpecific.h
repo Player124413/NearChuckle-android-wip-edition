@@ -32,12 +32,4 @@
 #include <sys/resource.h>
 inline void Android_SetThreadPriority(int nice) { setpriority(PRIO_PROCESS, 0, nice); }
 
-// ANGLE detection helper
-inline bool Android_IsAngleAvailable() {
-    // Check via EGL vendor string or libEGL_angle.so existence
-    void* h = dlopen("libEGL_angle.so", RTLD_NOW);
-    if (h) { dlclose(h); return true; }
-    return false;
-}
-
 #endif // _CRY_COMMON_ANDROID_SPECIFIC_HDR_

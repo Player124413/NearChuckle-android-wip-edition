@@ -26,7 +26,7 @@ add_definitions(-DDISABLE_CG)
 endif()
 
 if(ANDROID)
-    add_definitions(-DANDROID -DGLES -DUSE_ANGLE)
+    add_definitions(-DANDROID -DGLES)
 endif()
 
 set(SRC_FILES
@@ -194,11 +194,8 @@ else()
             ${ANDROID_LIB}
             ${LOG_LIB}
         )
-        # ANGLE libs will be provided via nearchuckle_android wrapper if USE_ANGLE
-        if(USE_ANGLE)
-            # No extra link needed here, nearchuckle_android already handles ANGLE; we just ensure EGL comes from ANGLE
-            message(STATUS "[XRenderOGL] Linking for Android with EGL/GLES (ANGLE Vulkan backend if present)")
-        endif()
+        # EGL/GLES come from the system driver (no translation layer)
+        message(STATUS "[XRenderOGL] Linking for Android with system EGL/GLES")
     else()
         set(SYSTEM_DEPS
             GLU
