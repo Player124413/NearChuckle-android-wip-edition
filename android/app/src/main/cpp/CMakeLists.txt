@@ -121,8 +121,10 @@ add_subdirectory("${OPENAL_DIR}" "${CMAKE_BINARY_DIR}/openal-build" EXCLUDE_FROM
 # engine modules as shared libraries; AGP packages every produced .so into
 # the APK. libFarCry.so exports FarCry_SDL_main, which our SDL_main wrapper
 # below calls.
+# NOTE: this CMakeLists sits at android/app/src/main/cpp - FIVE levels below
+# the repo root.
 # ---------------------------------------------------------------------------
-set(ENGINE_ROOT "${CMAKE_SOURCE_DIR}/../../../../")
+set(ENGINE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../..")
 add_subdirectory("${ENGINE_ROOT}" "${CMAKE_BINARY_DIR}/engine" EXCLUDE_FROM_ALL)
 
 # Our JNI bridge + touch injector + SDL_main wrapper
@@ -134,8 +136,8 @@ add_library(nearchuckle_android SHARED
 
 target_include_directories(nearchuckle_android PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/../../../../SourceCode/CryCommon
-    ${CMAKE_SOURCE_DIR}/../../../../SourceCode/CrySystem
+    ${ENGINE_ROOT}/SourceCode/CryCommon
+    ${ENGINE_ROOT}/SourceCode/CrySystem
 )
 
 target_compile_definitions(nearchuckle_android PRIVATE
