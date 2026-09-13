@@ -208,17 +208,19 @@ jobs:
             build_abi out/Android_arm64 arm64 "" arm64 || exit 1
             valid_cached out/Android_arm64 AArch64 || {
               echo "::error::arm64 build did not produce AArch64 libEGL_angle.so/libGLESv2_angle.so"
+              echo "readelf Machine: libEGL_angle.so=[$(readelf -h out/Android_arm64/libEGL_angle.so 2>/dev/null | awk '/Machine:/{print $NF}')] libGLESv2_angle.so=[$(readelf -h out/Android_arm64/libGLESv2_angle.so 2>/dev/null | awk '/Machine:/{print $NF}')]"
               find out/Android_arm64 -maxdepth 3 -name '*.so' 2>/dev/null | head -n 20
               exit 1
             }
           fi
 
-          if valid_cached out/Android_arm Arm; then
+          if valid_cached out/Android_arm ARM; then
             echo "Valid cached arm32 ANGLE build — skipping gn/ninja"
           else
             build_abi out/Android_arm arm "arm_version=7" arm || exit 1
-            valid_cached out/Android_arm Arm || {
+            valid_cached out/Android_arm ARM || {
               echo "::error::arm32 build did not produce ARM libEGL_angle.so/libGLESv2_angle.so"
+              echo "readelf Machine: libEGL_angle.so=[$(readelf -h out/Android_arm/libEGL_angle.so 2>/dev/null | awk '/Machine:/{print $NF}')] libGLESv2_angle.so=[$(readelf -h out/Android_arm/libGLESv2_angle.so 2>/dev/null | awk '/Machine:/{print $NF}')]"
               find out/Android_arm -maxdepth 3 -name '*.so' 2>/dev/null | head -n 20
               exit 1
             }
@@ -444,12 +446,19 @@ jobs:
           cp /tmp/gradle-*.log /tmp/ci_logs_push/ 2>/dev/null || true
           ls -lh /tmp/ci_logs_push/ 2>&1 | head -n 30 || true
           # Also capture file checks
-          echo "=== file checks ===" > /tmp/ci_logs_push/file_checks.log 2>&1 || true
-          file ~/angle/angle/out/Android_arm64/libEGL.so 2>&1 | head -n 20 >> /tmp/ci_logs_push/file_checks.log 2>&1 || true
-          file ~/angle/angle/out/Android_arm/libEGL.so 2>&1 | head -n 20 >> /tmp/ci_logs_push/file_checks.log 2>&1 || true
-          ls -lh ~/angle/angle/out/Android_arm64/*.so 2>&1 | head -n 20 >> /tmp/ci_logs_push/file_checks.log 2>&1 || true
-          ls -lh ~/angle/angle/out/Android_arm/*.so 2>&1 | head -n 20 >> /tmp/ci_logs_push/file_checks.log 2>&1 || true
-          cat /tmp/ci_logs_push/file_checks.log 2>&1 | head -n 50 || true
+          echo "=== file checks (out dirs: libEGL_angle.so / libGLESv2_angle.so) ===" > /tmp/ci_logs_push/file_checks.log 2>&1 || true
+          for d in Android_arm64 Android_arm; do
+            for lib in libEGL_angle.so libGLESv2_angle.so; do
+              f="$HOME/angle/angle/out/$d/$lib"
+              {
+                echo "--- $f ---"
+                ls -lh "$f" 2>&1 | head -n 2
+                file "$f" 2>&1 | head -n 2
+                readelf -h "$f" 2>&1 | grep -E 'Class:|Machine:' | head -n 4
+              } >> /tmp/ci_logs_push/file_checks.log 2>&1 || true
+            done
+          done
+          cat /tmp/ci_logs_push/file_checks.log 2>&1 | head -n 60 || true
           git config user.name "github-actions[bot]" 2>&1 | head -n 5 || true
           git config user.email "github-actions[bot]@users.noreply.github.com" 2>&1 | head -n 5 || true
           git fetch origin ci-logs 2>&1 | head -n 20 || true
