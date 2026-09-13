@@ -9,37 +9,33 @@ if(MSVC)
 endif()
 
 if(ANDROID)
-    # On Android, build as shared lib for SDLActivity (SDL_main entry)
-    # SDL3 on Android expects libmain.so with SDL_main()
+    # Android: the engine entry lives in a shared library (libFarCry.so).
+    # Its entry symbol FarCry_SDL_main (see Main.cpp) is called by the
+    # SDL_main wrapper inside libnearchuckle_android.so, which is the
+    # "main" library SDLActivity loads (last entry of getLibraries()).
     add_library(${PROJECT_NAME} SHARED ${SRC_FILES})
 
     target_include_directories(${PROJECT_NAME} PRIVATE
-        ${CMAKE_SOURCE_DIR}/SourceCode/CryCommon
+        ${CMAKE_CURRENT_SOURCE_DIR}/../CryCommon
     )
 
-    # SDL3 headers via FetchContent or system
-    find_package(SDL3 QUIET)
-    if(NOT SDL3_FOUND)
-        # fallback: try pkg-config
-        find_library(SDL3_LIB SDL3)
-    endif()
+    # Real SDL3 built from the official release source by the android
+    # gradle build (android/app/src/main/cpp/CMakeLists.txt) - no stubs.
+    # Main.cpp dlopen()s libCrySystem.so by bare name at runtime, the
+    # Android linker resolves it from the app's nativeLibraryDir.
+    target_link_libraries(${PROJECT_NAME} PRIVATE SDL3::SDL3 dl log)
 
-    target_link_libraries(${PROJECT_NAME} SDL3 android log EGL GLESv2)
-
-    # Keep SDL_main symbol
     target_compile_definitions(${PROJECT_NAME} PRIVATE ANDROID SDL_MAIN_HANDLED)
 
-    # Optimization
-    target_compile_options(${PROJECT_NAME} PRIVATE -O3 -flto=thin -ffast-math -fomit-frame-pointer -ffunction-sections -fdata-sections)
-    target_link_options(${PROJECT_NAME} PRIVATE -Wl,--gc-sections -Wl,--icf=all -flto=thin)
+    target_compile_options(${PROJECT_NAME} PRIVATE -O3 -ffast-math -fomit-frame-pointer -ffunction-sections -fdata-sections)
+    target_link_options(${PROJECT_NAME} PRIVATE -Wl,--gc-sections)
 
-    # Output name must be libFarCry.so but SDLActivity expects libmain.so; we provide alias via soname?
-    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "main")
+    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "FarCry")
 else()
     add_executable(${PROJECT_NAME} WIN32 ${SRC_FILES})
 
     target_include_directories(${PROJECT_NAME} PRIVATE
-        ${CMAKE_SOURCE_DIR}/SourceCode/CryCommon
+        ${CMAKE_CURRENT_SOURCE_DIR}/../CryCommon
         ${CMAKE_SOURCE_DIR}/Externals/SDL/include
     )
 

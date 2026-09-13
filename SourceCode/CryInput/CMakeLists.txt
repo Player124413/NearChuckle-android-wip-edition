@@ -43,13 +43,13 @@ endif()
 add_library(${PROJECT_NAME} SHARED ${SRC_FILES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/SourceCode/CryCommon
+    ${CMAKE_CURRENT_SOURCE_DIR}/../CryCommon
 )
 
 if(ANDROID)
     find_library(ANDROID_LIB android)
     find_library(LOG_LIB log)
-    target_link_libraries(${PROJECT_NAME} SDL3 ${ANDROID_LIB} ${LOG_LIB})
+    target_link_libraries(${PROJECT_NAME} SDL3::SDL3 ${ANDROID_LIB} ${LOG_LIB})
 else()
     target_link_libraries(${PROJECT_NAME} SDL3)
 endif()

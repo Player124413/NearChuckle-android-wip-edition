@@ -19,6 +19,10 @@
 #include <SDL3/SDL.h>
 #endif
 
+#ifdef ANDROID
+#include <android/log.h>
+#endif
+
 #ifdef WIN32
 #include <windows.h>
 #include <process.h>
@@ -180,6 +184,13 @@ void SetMasterCDFolder()
 	SetCurrentDirectory( path_buffer );
 	GetCurrentDirectory( sizeof(szMasterCDFolder),szMasterCDFolder );
 #else
+#ifdef ANDROID
+	// Android: the game data folder is the process cwd (Android_EnsureGameFolder
+	// chdir()ed there before the engine initialized). Engine .so libraries live
+	// in the app's nativeLibraryDir and are found by the linker by bare name,
+	// so there is no master-CD prefix and no chdir("../").
+	szMasterCDFolder[0] = 0;
+#else
 	char* last_slash;
 	char dll_path[_MAX_PATH];
 	getcwd(szMasterCDFolder, sizeof(szMasterCDFolder));
@@ -193,6 +204,7 @@ void SetMasterCDFolder()
 	}
 	
 	chdir("../");
+#endif
 #endif
 }
 
@@ -268,7 +280,14 @@ int APIENTRY WinMain(HINSTANCE hInstance,
                      LPSTR     lpCmdLine,
                      int       nCmdShow)
 #else
+#ifdef ANDROID
+// Android: the entry is invoked by the SDL_main wrapper in
+// android/app/src/main/cpp/android_main.cpp (libnearchuckle_android.so),
+// which SDLActivity calls through SDL_RunApp().
+extern "C" int FarCry_SDL_main(int argc, char** argv)
+#else
 int main(int argc, char** argv)
+#endif
 #endif
 {
 #if defined(_DEBUG) && defined(_WIN32)
@@ -751,12 +770,21 @@ bool RunGame(int argc, char** argv)
 		//		return false;
 		//	}
 		//}
+#ifdef ANDROID
+		// Bare library name: the Android linker searches the app's
+		// nativeLibraryDir (all engine .so are packaged in the APK).
+		g_hSystemHandle = SDL_LoadObject(DLL_SYSTEM);
+#else
 		g_hSystemHandle = SDL_LoadObject((string(szMasterCDFolder) + "/" + DLL_SYSTEM).c_str());
+#endif
 		if (!g_hSystemHandle)
 		{
 			string errorStr = "CrySystem.dll Loading Failed:\n";
 			errorStr += SDL_GetError();
 			fprintf(stderr, "%s\n", errorStr.c_str());
+#ifdef ANDROID
+			__android_log_print(ANDROID_LOG_ERROR, "FarCry", "%s", errorStr.c_str());
+#endif
 			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "FarCry Error", errorStr.c_str(), nullptr);
 
 			return false;

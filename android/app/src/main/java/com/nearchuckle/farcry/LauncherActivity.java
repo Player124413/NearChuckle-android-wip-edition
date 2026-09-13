@@ -2,9 +2,12 @@ package com.nearchuckle.farcry;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.provider.DocumentsContract;
+import android.provider.Settings;
 import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -263,6 +266,7 @@ public class LauncherActivity extends AppCompatActivity {
     private void launchGame() {
         String folder = settings.getGameFolder();
         if (folder==null || folder.isEmpty()) { Toast.makeText(this, R.string.msg_no_game_folder, Toast.LENGTH_LONG).show(); return; }
+        if (!ensureStorageAccess()) return; // dialog shown, user must grant first
         // Minimal check, but allow launch anyway with warning
         if (!looksValidFolder(folder)) {
             new MaterialAlertDialogBuilder(this)
@@ -273,6 +277,46 @@ public class LauncherActivity extends AppCompatActivity {
                     .show();
         } else {
             startGameActivity();
+        }
+    }
+
+    /**
+     * The native engine reads game files (FCData, Levels, Shaders) by direct
+     * filesystem paths, so it needs real storage access:
+     *  - Android 11+: "All files access" (MANAGE_EXTERNAL_STORAGE)
+     *  - Android 8-10: classic READ/WRITE_EXTERNAL_STORAGE runtime grant
+     */
+    private boolean ensureStorageAccess() {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            if (!Environment.isExternalStorageManager()) {
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle("Нужен доступ ко всем файлам")
+                        .setMessage("Движок читает файлы игры (FCData, Levels, Shaders) напрямую.\n" +
+                                "На Android 11+ для этого нужно разрешение «Все файлы».\n\n" +
+                                "После включения вернись в лаунчер и нажми «Играть» снова.")
+                        .setPositiveButton("Открыть настройки", (d,w) -> {
+                            try {
+                                startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                        Uri.parse("package:" + getPackageName())));
+                            } catch (Exception e) {
+                                try { startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)); }
+                                catch (Exception e2) { Toast.makeText(this, "Не удалось открыть настройки", Toast.LENGTH_LONG).show(); }
+                            }
+                        })
+                        .setNegativeButton("Отмена", null)
+                        .show();
+                return false;
+            }
+            return true;
+        } else {
+            if (checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{
+                        android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1001);
+                Toast.makeText(this, "Выдай доступ к памяти и нажми «Играть» снова", Toast.LENGTH_LONG).show();
+                return false;
+            }
+            return true;
         }
     }
 

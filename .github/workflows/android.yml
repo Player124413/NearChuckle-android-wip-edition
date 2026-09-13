@@ -43,6 +43,9 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          # ccache speeds up engine rebuilds across CI runs
+          ccache --version || (sudo apt-get update -qq && sudo apt-get install -y ccache)
+          ccache --max-size=5G
           ndk-build --version || true
           cmake --version
           java -version
@@ -57,6 +60,26 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties', 'android/**/*.gradle') }}
           restore-keys: |
             gradle-${{ runner.os }}-
+
+      - name: Cache SDL3 source
+        uses: actions/cache@v4
+        with:
+          path: android/.sdl3
+          key: sdl3-3.4.16
+
+      - name: Cache audio dependency sources
+        uses: actions/cache@v4
+        with:
+          path: android/.audio-deps
+          key: audio-deps-openal-1.25.1-ogg-1.3.5-vorbis-1.3.7
+
+      - name: Cache native build (ccache)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ matrix.build_type }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ matrix.build_type }}-
 
       - name: Ensure Gradle Wrapper Jar (fallback if network blocked)
         working-directory: android
@@ -150,6 +173,18 @@ jobs:
             echo "$f: machine=$m (expected $want), $(stat -c%s "$f") bytes"
             if [ "$m" != "$want" ]; then echo "::error::$f: wrong architecture ($m != $want)"; fail=1; fi
           done < <(find /tmp/apk_check/lib -type f -name '*.so' 2>/dev/null | sort)
+          # The APK must actually contain the game engine - a launcher shell
+          # without these libs is a guaranteed black screen (regression guard).
+          REQUIRED_LIBS="libSDL3.so libopenal.so libnearchuckle_android.so libFarCry.so libCrySystem.so libCryGame.so libCry3DEngine.so libCryAnimation.so libCryPhysics.so libCryInput.so libCryEntitySystem.so libCryFont.so libCryMovie.so libCryScriptSystem.so libCrySoundSystem.so libCryAISystem.so libCryNetwork.so libXRenderOGL.so"
+          for lib in $REQUIRED_LIBS; do
+            found=$(find /tmp/apk_check/lib -name "$lib" | head -1)
+            if [ -z "$found" ]; then
+              echo "::error::Required engine library $lib is MISSING from the APK"
+              fail=1
+            else
+              echo "required lib OK: $lib"
+            fi
+          done
           {
             echo "## APK native libs"
             echo '```'

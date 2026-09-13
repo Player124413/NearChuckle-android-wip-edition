@@ -163,9 +163,9 @@ add_library(${PROJECT_NAME} SHARED ${SRC_FILES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/SourceCode/CryCommon
-    ${CMAKE_SOURCE_DIR}/SourceCode/RenderDll
-    ${CMAKE_SOURCE_DIR}/SourceCode/RenderDll/Common/Shaders
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../CryCommon
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../RenderDll
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../RenderDll/Common/Shaders
 )
 
 target_link_directories(${PROJECT_NAME} PRIVATE
@@ -184,10 +184,13 @@ if (MSVC)
     )
 else()
     if(ANDROID)
-        # On Android link EGL/GLESv2 (via ANGLE if available) + android log
+        # On Android link EGL/GLESv2 (system driver) + android log.
+        # SDL3 is linked explicitly so the DT_NEEDED chain is correct on
+        # Android (no lazy runtime symbol resolution like desktop Linux).
         find_library(ANDROID_LIB android)
         find_library(LOG_LIB log)
         set(SYSTEM_DEPS
+            SDL3::SDL3
             EGL
             GLESv2
             GLESv3
@@ -195,7 +198,7 @@ else()
             ${LOG_LIB}
         )
         # EGL/GLES come from the system driver (no translation layer)
-        message(STATUS "[XRenderOGL] Linking for Android with system EGL/GLES")
+        message(STATUS "[XRenderOGL] Linking for Android with system EGL/GLES + SDL3")
     else()
         set(SYSTEM_DEPS
             GLU

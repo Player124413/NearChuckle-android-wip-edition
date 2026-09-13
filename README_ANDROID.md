@@ -7,7 +7,18 @@
 1. Установи APK из `Releases` или собери сам: `cd android && ./gradlew :app:assembleRelease`
 2. Скопируй **полную** установку Far Cry PC (папка с `FCData`, `Levels`, `Shaders`) на телефон: `/storage/emulated/0/FarCry/`
    - Через USB: `adb push "C:/FarCry" /storage/emulated/0/FarCry`
-3. Запусти **NearChuckle**, выбери папку, нажми **ИГРАТЬ**.
+   - Рядом с `FCData` положи pak предкомпилированных шейдеров:
+     [GL_Shaders_*.pak](https://rohitcodes.fyi/nearchuckle/files/shadercache) → `FCData/GL_Shaders_20260517.pak`
+3. Запусти **NearChuckle**, выдай доступ ко всем файлам (Android 11+ — иначе движок
+   не сможет читать FCData), выбери папку, нажми **ИГРАТЬ**.
+4. Если что-то не так — движок пишет лог `log.txt` в папку игры (рядом с `FCData`),
+   недостающие шейдеры — в `MissingShaders.txt` там же.
+
+> **Что реально лежит в APK (с 2026-09):** настоящий SDL3 (собирается в CI из
+> официального релиза 3.4.16, Java-часть тоже из релиза — стаб `SDLActivity`
+> удалён), весь движок CryEngine (все модули `SourceCode/` собираются под NDK
+> как `.so` и упаковываются в APK), звук — openal-soft + libogg/libvorbis из
+> исходников. `armeabi-v7a` временно отключён — порт доводится на arm64.
 
 ## Лаунчер
 

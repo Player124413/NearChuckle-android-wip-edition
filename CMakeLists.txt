@@ -20,12 +20,17 @@ message("CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
 message("ARCH_TYPE=${ARCH_TYPE}")
 message("IS_ANDROID=${IS_ANDROID}")
 
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/${ARCH_TYPE}-${CMAKE_BUILD_TYPE})
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/${ARCH_TYPE}-${CMAKE_BUILD_TYPE})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
+# NOTE: on Android (gradle externalNativeBuild / AGP) the output directories are
+# provided by AGP on the command line and MUST NOT be overridden, otherwise the
+# packaged APK would miss every engine .so. Only redirect output on desktop.
+if(NOT IS_ANDROID)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_SOURCE_DIR}/bin/${ARCH_TYPE}-${CMAKE_BUILD_TYPE})
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_CURRENT_SOURCE_DIR}/bin/${ARCH_TYPE}-${CMAKE_BUILD_TYPE})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
+endif()
 
 if(MSVC)
     if (${ARCH_TYPE} STREQUAL "x64")
@@ -80,9 +85,20 @@ if(NOT TARGET SDL3 AND NOT TARGET SDL3::SDL3)
 endif()
 if(NOT TARGET SDL3 AND NOT TARGET SDL3::SDL3)
     # Final fallback: stub headers from android/app/src/main/cpp/SDL_stub.h
+    # (desktop-only; on Android a real SDL3 must be provided by the gradle
+    #  android build, which add_subdirectory()s the official SDL3 release
+    #  BEFORE including this file - see android/app/src/main/cpp/CMakeLists.txt)
+    if(IS_ANDROID)
+        message(FATAL_ERROR
+            "[SDL3] Android build requires a real SDL3. Build through the gradle\n"
+            "project (android/app/src/main/cpp/CMakeLists.txt), which downloads and\n"
+            "builds the official SDL3 release. There is no stub path for Android.")
+    endif()
     if(NOT TARGET SDL3)
         add_library(SDL3 INTERFACE)
-        target_include_directories(SDL3 INTERFACE ${CMAKE_SOURCE_DIR}/android/app/src/main/cpp)
+        # Stub headers live in a dedicated directory so they can never shadow
+        # a real SDL3 when the engine is embedded in the Android gradle build.
+        target_include_directories(SDL3 INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/android/app/src/main/cpp/sdl_stub_headers)
         message(WARNING "[SDL3] SDL3 not found - using stub headers (CI builds will configure but native features disabled). Install libsdl3-dev or provide Externals/SDL for full build.")
     endif()
 endif()

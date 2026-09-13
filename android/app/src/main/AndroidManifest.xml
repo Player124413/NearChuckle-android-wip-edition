@@ -9,6 +9,10 @@
     <!-- Legacy storage for game files (Android 10-) + SAF for 11+ -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" tools:ignore="ScopedStorage" />
+    <!-- Full file access: on Android 11+ this is the only way the native
+         engine can read the game data folder (FCData/Levels/Shaders) by
+         direct path. The launcher requests it via system settings. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <!-- Game wants to keep screen on -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

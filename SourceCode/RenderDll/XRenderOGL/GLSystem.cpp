@@ -1533,10 +1533,33 @@ HWND CGLRenderer::SetMode(int x,int y,int width,int height,unsigned int cbpp, in
     m_width = width;
     m_height = height;
 
+#ifdef ANDROID
+    // Android only exposes GLES through EGL; without an explicit profile
+    // request SDL would try to create a desktop GL context and fail with a
+    // black screen. Ask for GLES 3.0 first, retry with 2.0 below.
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+#endif
+
     SDL_Window* win = SDL_CreateWindow(szWinTitle,
         width,
         height,
         windowFlags);
+
+#ifdef ANDROID
+    if (!win)
+    {
+        // Fallback: some devices only provide GLES 2.0
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+        win = SDL_CreateWindow(szWinTitle,
+            width,
+            height,
+            windowFlags);
+    }
+#endif
 
     if (fullscreen)
     {

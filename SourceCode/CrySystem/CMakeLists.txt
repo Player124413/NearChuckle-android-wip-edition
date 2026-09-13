@@ -100,14 +100,14 @@ add_library(${PROJECT_NAME} SHARED ${SRC_FILES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/SourceCode/CryCommon
+    ${CMAKE_CURRENT_SOURCE_DIR}/../CryCommon
 )
 
 if(ANDROID)
     find_library(ANDROID_LIB android)
     find_library(LOG_LIB log)
     target_link_libraries(${PROJECT_NAME} PRIVATE
-        ${SYSTEM_DEPS} SDL3 ${ANDROID_LIB} ${LOG_LIB}
+        ${SYSTEM_DEPS} SDL3::SDL3 ${ANDROID_LIB} ${LOG_LIB}
     )
     target_compile_options(${PROJECT_NAME} PRIVATE -O3 -flto=thin -ffast-math -fomit-frame-pointer -ffunction-sections -fdata-sections)
     target_link_options(${PROJECT_NAME} PRIVATE -Wl,--gc-sections -Wl,--icf=all -flto=thin)

@@ -453,7 +453,7 @@ bool CSystem::InitRenderer(WIN_HINSTANCE hinst, WIN_HWND hwnd,const char *szCmdL
 		m_sSavedRDriver=m_rDriver->GetString();
 		m_rDriver->Set("NULL");
 	}
-#ifdef __linux
+#if defined(__linux) && !defined(ANDROID)
 	string lib_name(GetModulePath());
 	FILE* fp;
 	bool real_renderer = false;
@@ -1101,8 +1101,19 @@ public:
 /////////////////////////////////////////////////////////////////////////////////
 // INIT
 /////////////////////////////////////////////////////////////////////////////////
+#ifdef ANDROID
+// AndroidStorage.cpp: chdir() to the game data folder selected in the launcher
+// (reads NEARCHUCKLE_GAME_FOLDER, set by the SDL_main wrapper in
+// android/app/src/main/cpp/android_main.cpp). Must run before anything opens
+// files (system.cfg, log.txt, FCData paks).
+extern "C" void Android_OnEngineInit();
+#endif
+
 bool CSystem::Init( const SSystemInitParams &params )
 {
+#ifdef ANDROID
+	Android_OnEngineInit();
+#endif
 	// parse command line arguments minus e.g. "-IP:23.34.2.2" "-DEVMODE"
 	CCommandLineSink_EarlyCommands CmdlineSink(*this);
 

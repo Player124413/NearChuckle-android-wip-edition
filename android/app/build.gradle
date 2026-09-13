@@ -2,6 +2,75 @@ plugins {
     id 'com.android.application'
 }
 
+// ---------------------------------------------------------------------------
+// SDL3 release used for BOTH the native build (cpp/CMakeLists.txt builds it
+// from this source) and the Java glue (SDLActivity etc. are compiled straight
+// from the release's android-project sources - the old 32-line stub was
+// deleted). No prebuilt blobs are committed to the repo.
+// ---------------------------------------------------------------------------
+def sdl3Version = "3.4.16"
+def sdl3SourceDir = file("${rootDir}/.sdl3/SDL3-${sdl3Version}")
+
+// Real audio stack sources: openal-soft (shared libopenal.so) +
+// libogg/libvorbis (static, linked into libCrySoundSystem.so).
+// The engine's sound system dlopen()s OpenAL and needs OGG/Vorbis for
+// music playback - without these libCrySoundSystem.so cannot load.
+def openalVersion = "1.25.1"
+def oggVersion = "1.3.5"
+def vorbisVersion = "1.3.7"
+def audioDepsDir = file("${rootDir}/.audio-deps")
+
+tasks.register('downloadSdl3') {
+    description = "Downloads the official SDL3 release source (native build + Java glue)"
+    outputs.dir(sdl3SourceDir)
+    doLast {
+        if (!file("${sdl3SourceDir}/CMakeLists.txt").exists()) {
+            sdl3SourceDir.parentFile.mkdirs()
+            def tarball = new File(sdl3SourceDir.parentFile, "SDL3-${sdl3Version}.tar.gz")
+            if (!tarball.exists()) {
+                println "Downloading SDL3 ${sdl3Version}..."
+                exec {
+                    commandLine 'bash', '-c', "curl -fL --retry 3 -o '${tarball}' https://github.com/libsdl-org/SDL/releases/download/release-${sdl3Version}/SDL3-${sdl3Version}.tar.gz"
+                }
+            }
+            println "Unpacking SDL3 ${sdl3Version}..."
+            exec {
+                commandLine 'bash', '-c', "cd '${sdl3SourceDir.parentFile}' && tar xzf SDL3-${sdl3Version}.tar.gz"
+            }
+        } else {
+            println "SDL3 ${sdl3Version} already present at ${sdl3SourceDir}"
+        }
+    }
+}
+
+tasks.register('downloadAudioSources') {
+    description = "Downloads openal-soft + libogg + libvorbis sources for the sound system"
+    outputs.dir(audioDepsDir)
+    doLast {
+        audioDepsDir.mkdirs()
+        def fetch = { String repo, String tag, String dirName ->
+            if (!file("${audioDepsDir}/${dirName}/CMakeLists.txt").exists()) {
+                def tarball = new File(audioDepsDir, "${dirName}.tar.gz")
+                if (!tarball.exists()) {
+                    println "Downloading ${repo} ${tag}..."
+                    exec {
+                        commandLine 'bash', '-c', "curl -fL --retry 3 -o '${tarball}' https://github.com/${repo}/archive/refs/tags/${tag}.tar.gz"
+                    }
+                }
+                println "Unpacking ${dirName}..."
+                exec {
+                    commandLine 'bash', '-c', "cd '${audioDepsDir}' && tar xzf ${dirName}.tar.gz"
+                }
+            } else {
+                println "${dirName} already present"
+            }
+        }
+        fetch("kcat/openal-soft", "${openalVersion}", "openal-soft-${openalVersion}")
+        fetch("xiph/ogg", "v${oggVersion}", "ogg-v${oggVersion}")
+        fetch("xiph/vorbis", "v${vorbisVersion}", "vorbis-v${vorbisVersion}")
+    }
+}
+
 android {
     namespace 'com.nearchuckle.farcry'
     compileSdk 34
@@ -16,8 +85,9 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            // CryEngine is 64-bit focused + 32-bit compat
-            abiFilters 'arm64-v8a', 'armeabi-v7a'
+            // Engine bring-up targets arm64 first; armeabi-v7a can be
+            // re-enabled later once the port runs on 64-bit devices.
+            abiFilters 'arm64-v8a'
         }
 
         externalNativeBuild {
@@ -27,8 +97,21 @@ android {
                           "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
                           "-DDISABLE_CG=ON",
                           "-DANDROID_PERFORMANCE_MODE=ON",
-                          "-DCMAKE_BUILD_TYPE=Release"
+                          "-DCMAKE_BUILD_TYPE=Release",
+                          "-DSDL3_SOURCE_DIR=${sdl3SourceDir}",
+                          "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+                          "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
                 // Pass optimization level
+            }
+        }
+    }
+
+    sourceSets {
+        main {
+            java {
+                // Real SDL Java glue (org.libsdl.app: SDLActivity, SDL,
+                // SDLSurface, controllers, HID...) from the SDL3 release.
+                srcDir "${sdl3SourceDir}/android-project/app/src/main/java"
             }
         }
     }
@@ -113,5 +196,12 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.preference:preference:1.2.1'
     implementation 'androidx.documentfile:documentfile:1.0.1'
-    // SDL3 will be provided via native CMake FetchContent, Java part copied via CMake install
 }
+
+// Everything that compiles Java or configures CMake needs the SDL3 sources
+// (real SDLActivity.java + the native source tree) and the audio stack
+// sources to be present first.
+tasks.matching { it.name ==~ /compile.*JavaWithJavac/ }.configureEach { dependsOn 'downloadSdl3', 'downloadAudioSources' }
+tasks.matching { it.name.startsWith('lint') }.configureEach { dependsOn 'downloadSdl3', 'downloadAudioSources' }
+tasks.matching { it.name.startsWith('configureCMake') || it.name.startsWith('buildCMake') }.configureEach { dependsOn 'downloadSdl3', 'downloadAudioSources' }
+tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn 'downloadSdl3', 'downloadAudioSources' }

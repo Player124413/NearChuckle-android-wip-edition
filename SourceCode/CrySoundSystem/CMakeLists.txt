@@ -29,7 +29,7 @@ endif()
 add_library(${PROJECT_NAME} SHARED ${SRC_FILES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/SourceCode/CryCommon
+    ${CMAKE_CURRENT_SOURCE_DIR}/../CryCommon
     ${CMAKE_CURRENT_SOURCE_DIR}/OggVorbisInclude
 )
 
@@ -71,6 +71,14 @@ if (MSVC)
         legacy_stdio_definitions.lib
     )
 else()
+    if(ANDROID)
+        # Android: real audio stack built from source by the gradle android
+        # build (see android/app/src/main/cpp/CMakeLists.txt):
+        #   - openal-soft as shared libopenal.so (loaded/dlopen'ed at runtime)
+        #   - libogg + libvorbis + vorbisfile as static libs, linked into
+        #     this module so no extra runtime files are needed
+        target_link_libraries(${PROJECT_NAME} PUBLIC openal vorbisfile)
+    else()
     # CI fallback: try to find libs, if not found create dummy to allow configure to pass
     find_library(OPENAL_LIB openal)
     find_library(VORBISFILE_LIB vorbisfile)
@@ -85,5 +93,6 @@ else()
     else()
         message(WARNING "[CrySoundSystem] openal/vorbisfile not found - using stub (CI). Install libopenal-dev libvorbis-dev for full sound.")
         # No link, stub build will succeed but sound disabled at runtime
+    endif()
     endif()
 endif()

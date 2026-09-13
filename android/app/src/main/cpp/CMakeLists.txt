@@ -29,7 +29,65 @@ if(NOT GLESv3_LIB)
     set(GLESv3_LIB "")
 endif()
 
-# Our JNI bridge + touch injector
+# ---------------------------------------------------------------------------
+# Real SDL3 - built from the official release source (no prebuilt blobs, no
+# stubs). The gradle task 'downloadSdl3' fetches/unpacks the release tarball;
+# CI caches it. SDL3_SOURCE_DIR can also be passed explicitly.
+# ---------------------------------------------------------------------------
+if(NOT DEFINED SDL3_SOURCE_DIR)
+    set(SDL3_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../../../../.sdl3/SDL3-3.4.16")
+endif()
+if(NOT EXISTS "${SDL3_SOURCE_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "SDL3 source not found at '${SDL3_SOURCE_DIR}'.\n"
+        "Run './gradlew downloadSdl3' in android/ (CI runs it automatically).\n"
+        "The Android build requires a real SDL3 - there is no stub path.")
+endif()
+message(STATUS "[NearChuckle] Using SDL3 source: ${SDL3_SOURCE_DIR}")
+set(SDL_SHARED ON  CACHE BOOL "" FORCE)
+set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+add_subdirectory("${SDL3_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/SDL3-build" EXCLUDE_FROM_ALL)
+
+# ---------------------------------------------------------------------------
+# Sound stack: openal-soft (shared libopenal.so, dlopen'ed through
+# libCrySoundSystem.so) + libogg/libvorbis (static, linked into
+# libCrySoundSystem.so). All built from official release sources - no
+# prebuilt blobs. Sources come from the gradle task 'downloadAudioSources'.
+# ---------------------------------------------------------------------------
+set(AUDIO_DEPS_DIR "${CMAKE_SOURCE_DIR}/../../../../.audio-deps")
+set(OPENAL_DIR  "${AUDIO_DEPS_DIR}/openal-soft-1.25.1")
+set(OGG_DIR     "${AUDIO_DEPS_DIR}/ogg-v1.3.5")
+set(VORBIS_DIR  "${AUDIO_DEPS_DIR}/vorbis-v1.3.7")
+foreach(_d "${OPENAL_DIR}" "${OGG_DIR}" "${VORBIS_DIR}")
+    if(NOT EXISTS "${_d}/CMakeLists.txt")
+        message(FATAL_ERROR
+            "Audio dependency source missing: ${_d}\n"
+            "Run './gradlew downloadAudioSources' in android/ (CI runs it automatically).")
+    endif()
+endforeach()
+
+# libogg (static)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+add_subdirectory("${OGG_DIR}" "${CMAKE_BINARY_DIR}/ogg-build" EXCLUDE_FROM_ALL)
+# libvorbis + vorbisfile (static); vorbis does find_package(Ogg), which
+# resolves through the ogg build tree exported above.
+set(Ogg_DIR "${CMAKE_BINARY_DIR}/ogg-build" CACHE PATH "" FORCE)
+add_subdirectory("${VORBIS_DIR}" "${CMAKE_BINARY_DIR}/vorbis-build" EXCLUDE_FROM_ALL)
+# openal-soft (shared; LIBTYPE is its own option name)
+set(LIBTYPE SHARED CACHE STRING "" FORCE)
+add_subdirectory("${OPENAL_DIR}" "${CMAKE_BINARY_DIR}/openal-build" EXCLUDE_FROM_ALL)
+
+# ---------------------------------------------------------------------------
+# CryEngine: build the whole engine tree (SourceCode) for Android.
+# The root CMakeLists detects the NDK toolchain (IS_ANDROID) and compiles the
+# engine modules as shared libraries; AGP packages every produced .so into
+# the APK. libFarCry.so exports FarCry_SDL_main, which our SDL_main wrapper
+# below calls.
+# ---------------------------------------------------------------------------
+set(ENGINE_ROOT "${CMAKE_SOURCE_DIR}/../../../../")
+add_subdirectory("${ENGINE_ROOT}" "${CMAKE_BINARY_DIR}/engine" EXCLUDE_FROM_ALL)
+
+# Our JNI bridge + touch injector + SDL_main wrapper
 add_library(nearchuckle_android SHARED
     native_bridge.cpp
     touch_injector.cpp
@@ -92,6 +150,12 @@ foreach(_lib IN ITEMS ANDROID_LIB LOG_LIB EGL_LIB GLESv2_LIB)
         message(STATUS "[nearchuckle_android] Skipping ${_lib} (NOTFOUND/empty)")
     endif()
 endforeach()
+
+# SDL3 (real target built above) and the engine entry library: this makes
+# libnearchuckle_android.so depend on libSDL3.so + libFarCry.so, so loading
+# the wrapper pulls in the whole chain and the weak FarCry_SDL_main symbol
+# resolves at link time.
+list(APPEND _NEAR_LINK_LIBS SDL3::SDL3 FarCry)
 if(_NEAR_LINK_LIBS)
     target_link_libraries(nearchuckle_android PRIVATE ${_NEAR_LINK_LIBS})
 else()
