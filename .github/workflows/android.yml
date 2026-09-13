@@ -1,5 +1,8 @@
 name: CI Android
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ "**" ]
@@ -58,6 +61,7 @@ jobs:
         shell: bash
         run: |
           set +e
+          set -o pipefail
           echo "::group::ANGLE real build from https://github.com/google/angle"
           echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME:-$ANDROID_SDK_ROOT/ndk/26.3.11579264}"
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
