@@ -71,10 +71,46 @@ endforeach()
 # libogg (static)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${OGG_DIR}" "${CMAKE_BINARY_DIR}/ogg-build" EXCLUDE_FROM_ALL)
-# libvorbis + vorbisfile (static); vorbis does find_package(Ogg), which
-# resolves through the ogg build tree exported above.
-set(Ogg_DIR "${CMAKE_BINARY_DIR}/ogg-build" CACHE PATH "" FORCE)
-add_subdirectory("${VORBIS_DIR}" "${CMAKE_BINARY_DIR}/vorbis-build" EXCLUDE_FROM_ALL)
+
+# libvorbis + vorbisfile (static). vorbis 1.3.7's own CMake ships a
+# MODULE-mode FindOgg.cmake (find_library-based) that cannot see a
+# not-yet-built sibling ogg in the same tree when cross-compiling with the
+# NDK (CMAKE_FIND_ROOT_PATH restricts the search to the sysroot), so instead
+# of fighting find_package() we compile the same source lists directly and
+# link them against the ogg target above.
+add_library(vorbis STATIC
+    ${VORBIS_DIR}/lib/mdct.c
+    ${VORBIS_DIR}/lib/smallft.c
+    ${VORBIS_DIR}/lib/block.c
+    ${VORBIS_DIR}/lib/envelope.c
+    ${VORBIS_DIR}/lib/window.c
+    ${VORBIS_DIR}/lib/lsp.c
+    ${VORBIS_DIR}/lib/lpc.c
+    ${VORBIS_DIR}/lib/analysis.c
+    ${VORBIS_DIR}/lib/synthesis.c
+    ${VORBIS_DIR}/lib/psy.c
+    ${VORBIS_DIR}/lib/info.c
+    ${VORBIS_DIR}/lib/floor1.c
+    ${VORBIS_DIR}/lib/floor0.c
+    ${VORBIS_DIR}/lib/res0.c
+    ${VORBIS_DIR}/lib/mapping0.c
+    ${VORBIS_DIR}/lib/registry.c
+    ${VORBIS_DIR}/lib/codebook.c
+    ${VORBIS_DIR}/lib/sharedbook.c
+    ${VORBIS_DIR}/lib/lookup.c
+    ${VORBIS_DIR}/lib/bitrate.c
+)
+add_library(vorbisfile STATIC ${VORBIS_DIR}/lib/vorbisfile.c)
+target_include_directories(vorbis PRIVATE
+    ${VORBIS_DIR}/include
+    ${VORBIS_DIR}/lib
+)
+target_include_directories(vorbisfile PUBLIC
+    ${VORBIS_DIR}/include
+)
+target_link_libraries(vorbis PUBLIC ogg m)
+target_link_libraries(vorbisfile PUBLIC vorbis)
+
 # openal-soft (shared; LIBTYPE is its own option name)
 set(LIBTYPE SHARED CACHE STRING "" FORCE)
 add_subdirectory("${OPENAL_DIR}" "${CMAKE_BINARY_DIR}/openal-build" EXCLUDE_FROM_ALL)
