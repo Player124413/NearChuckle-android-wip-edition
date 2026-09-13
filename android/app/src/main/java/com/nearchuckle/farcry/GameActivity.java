@@ -198,7 +198,7 @@ public class GameActivity extends SDLActivity {
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
         decor.setSystemUiVisibility(flags);
-        if (getSupportActionBar()!=null) getSupportActionBar().hide();
+        if (getActionBar()!=null) getActionBar().hide();
         // Landscape
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
     }

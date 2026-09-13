@@ -230,11 +230,11 @@ public class LauncherActivity extends AppCompatActivity {
         MaterialButton btnSave = new MaterialButton(this);
         btnSave.setText("Сохранить");
         btnSave.setIconResource(android.R.drawable.ic_menu_save);
-        MaterialButton btnReset = new MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedButtonStyle);
+        MaterialButton btnReset = new MaterialButton(this);
         btnReset.setText("Сброс");
-        MaterialButton btnToggle = new MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedButtonStyle);
+        MaterialButton btnToggle = new MaterialButton(this);
         btnToggle.setText(settings.isTouchEnabled()? "Отключить сенсор":"Включить сенсор");
-        MaterialButton btnClose = new MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedButtonStyle);
+        MaterialButton btnClose = new MaterialButton(this);
         btnClose.setText("Закрыть");
 
         bar.addView(btnSave, new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1));
