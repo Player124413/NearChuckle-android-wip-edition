@@ -86,6 +86,14 @@ target_compile_definitions(nearchuckle_android PRIVATE
 )
 
 # Optimization flags for mega performance on all phones
+# ABI-aware march: arm64-v8a uses armv8-a, armeabi-v7a uses armv7-a
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    set(NEARCHUCKLE_MARCH -march=armv8-a)
+elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
+    set(NEARCHUCKLE_MARCH -march=armv7-a -mthumb)
+else()
+    set(NEARCHUCKLE_MARCH "")
+endif()
 target_compile_options(nearchuckle_android PRIVATE
     -O3
     -flto=thin
@@ -95,12 +103,13 @@ target_compile_options(nearchuckle_android PRIVATE
     -ffunction-sections
     -fdata-sections
     -DNDEBUG
-    # Tune for armv8
-    -march=armv8-a
+    ${NEARCHUCKLE_MARCH}
     # Silence noisy warnings from CryEngine headers
     -fpermissive
     -Wno-invalid-offsetof
     -Wno-narrowing
+    -Wno-unused-parameter
+    -Wno-sign-compare
 )
 
 target_link_options(nearchuckle_android PRIVATE

@@ -57,13 +57,19 @@ else() #x64
 endif()
 
 if (MSVC)
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    ${CRYSOUND_LIB}
-    ${OGG_STATIC_LIB}
-    ${VORBIS_STATIC_LIB}
-    ${VORBISFILE_STATIC_LIB}
-    legacy_stdio_definitions.lib
-)
+    # Check if static libs exist, if not warn and use stub (CI fallback)
+    set(SOUND_LIBS "")
+    foreach(LIB ${CRYSOUND_LIB} ${OGG_STATIC_LIB} ${VORBIS_STATIC_LIB} ${VORBISFILE_STATIC_LIB})
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${LIB}" OR EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../${LIB}")
+            list(APPEND SOUND_LIBS ${LIB})
+        else()
+            message(WARNING "[CrySoundSystem] ${LIB} not found - skipping (CI stub)")
+        endif()
+    endforeach()
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        ${SOUND_LIBS}
+        legacy_stdio_definitions.lib
+    )
 else()
     # CI fallback: try to find libs, if not found create dummy to allow configure to pass
     find_library(OPENAL_LIB openal)
