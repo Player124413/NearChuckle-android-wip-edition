@@ -132,11 +132,18 @@ else()
     target_link_libraries(nearchuckle_android PRIVATE android EGL GLESv2 log)
 endif()
 
-if(USE_ANGLE AND TARGET libANGLE)
-    target_link_libraries(nearchuckle_android libANGLE libGLESv2 libEGL)
+if(USE_ANGLE)
+    if(TARGET libANGLE)
+        # Source mode (ANGLE_FETCH=ON): link ANGLE statically from FetchContent
+        target_link_libraries(nearchuckle_android libANGLE libGLESv2 libEGL)
+    else()
+        # Prebuilt mode (default): real ANGLE libs (libEGL_angle.so / libGLESv2_angle.so,
+        # built in CI from https://github.com/google/angle with angle_libs_suffix="_angle")
+        # are packaged into the APK via jniLibs. AngleManager dlopen()s them at runtime
+        # and gracefully falls back to system GLES if they are absent.
+        message(STATUS "[ANGLE] Prebuilt mode: libEGL_angle.so/libGLESv2_angle.so from jniLibs, loaded via dlopen at runtime")
+    endif()
     target_compile_definitions(nearchuckle_android PRIVATE USE_ANGLE=1 ANGLE_USE_VULKAN=1)
-else()
-    target_compile_definitions(nearchuckle_android PRIVATE USE_ANGLE=0)
 endif()
 
 # Also build CryEngine libs for Android

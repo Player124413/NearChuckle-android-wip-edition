@@ -36,6 +36,10 @@
 - В `android/app/src/main/cpp/CMakeLists.txt`: `option(USE_ANGLE ON)`, `FetchContent` опционально.
 - В `AndroidManifest.xml`: `<meta-data android:name="com.google.android.angle.GameAngle" android:value="vulkan" />`
 - `angle_manager.cpp` детектит `libEGL_angle.so` и `EGL_VENDOR==ANGLE`, логирует бэкенд.
+- Реальные `libEGL_angle.so`/`libGLESv2_angle.so` собираются в CI из исходников ANGLE
+  (depot_tools + `ensure_bootstrap` + `gclient sync` c `target_os=["android"]` + `gn gen`/`autoninja`,
+  GN-арги как у официального ANGLE CI). Никаких заглушек: если сборка ANGLE падает — job красный.
+  Подробности: `android/app/src/main/cpp/angle/README_ANGLE.txt`.
 
 ## Мега-оптимизация
 
