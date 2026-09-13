@@ -96,7 +96,6 @@ else()
 endif()
 target_compile_options(nearchuckle_android PRIVATE
     -O3
-    -flto=thin
     -ffast-math
     -fomit-frame-pointer
     -fstrict-aliasing
@@ -110,12 +109,12 @@ target_compile_options(nearchuckle_android PRIVATE
     -Wno-narrowing
     -Wno-unused-parameter
     -Wno-sign-compare
+    -Wno-error
 )
 
 target_link_options(nearchuckle_android PRIVATE
     -Wl,--gc-sections
     -Wl,--icf=all
-    -flto=thin
 )
 
 set(_NEAR_LINK_LIBS "")

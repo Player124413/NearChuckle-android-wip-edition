@@ -117,15 +117,22 @@ jobs:
         if: failure()
         run: |
           echo "=== DIAGNOSE: gradle log tail 80 ==="
-          tail -n 80 /tmp/gradle-${{ matrix.build_type }}.log 2>&1 | tee /tmp/diag.log || echo "no gradle log"
+          tail -n 120 /tmp/gradle-${{ matrix.build_type }}.log 2>&1 | tee /tmp/diag.log || echo "no gradle log"
           # Also create a step summary visible in GH UI
           echo "## Gradle failure tail (${{ matrix.build_type }})" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 150 /tmp/gradle-${{ matrix.build_type }}.log >> $GITHUB_STEP_SUMMARY 2>&1 || echo "no log" >> $GITHUB_STEP_SUMMARY
+          tail -n 250 /tmp/gradle-${{ matrix.build_type }}.log >> $GITHUB_STEP_SUMMARY 2>&1 || echo "no log" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          # Create annotation (escape % and newlines)
-          TAIL_ONE_LINE=$(tail -n 20 /tmp/gradle-${{ matrix.build_type }}.log | tr '\n' ';' | cut -c1-3000 | sed 's/%/%25/g')
-          echo "::error title=Gradle ${{ matrix.build_type }} failed::$TAIL_ONE_LINE"
+          echo "## Grep errors" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -i -E "error:|FAILED|ninja:|clang|fatal" /tmp/gradle-${{ matrix.build_type }}.log | tail -n 80 >> $GITHUB_STEP_SUMMARY 2>&1 || echo "no error lines" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Create annotation with error lines (escape %)
+          ERR_LINES=$(grep -i -E "error:|FAILED|ninja:" /tmp/gradle-${{ matrix.build_type }}.log | tail -n 10 | tr '\n' ';' | cut -c1-3000 | sed 's/%/%25/g; s/\r//g')
+          if [ -n "$ERR_LINES" ]; then echo "::error title=Native build error::$ERR_LINES"; else TAIL_ONE_LINE=$(tail -n 30 /tmp/gradle-${{ matrix.build_type }}.log | tr '\n' ';' | cut -c1-3000 | sed 's/%/%25/g'); echo "::error title=Gradle ${{ matrix.build_type }} failed::$TAIL_ONE_LINE"; fi
+          echo "=== Full grep ==="
+          grep -n -i -E "error:" /tmp/gradle-${{ matrix.build_type }}.log | head -n 100 || true
+          cat /tmp/diag.log | head -n 50 || true
 
       - name: Verify APK
         working-directory: android
