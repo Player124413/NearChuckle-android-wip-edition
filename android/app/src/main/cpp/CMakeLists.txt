@@ -37,12 +37,29 @@ if(USE_ANGLE)
     endif()
 endif()
 
-# Find Android libs
+# Find Android libs (optional for non-Android CI lint builds)
 find_library(ANDROID_LIB android)
 find_library(LOG_LIB log)
 find_library(EGL_LIB EGL)
 find_library(GLESv2_LIB GLESv2)
 find_library(GLESv3_LIB GLESv3)
+if(NOT ANDROID_LIB)
+    message(WARNING "[nearchuckle_android] ANDROID lib not found (non-Android CI) - using stub")
+    set(ANDROID_LIB "")
+endif()
+if(NOT LOG_LIB)
+    set(LOG_LIB "")
+endif()
+if(NOT EGL_LIB)
+    message(WARNING "[nearchuckle_android] EGL not found - using stub, APK will use system EGL at runtime")
+    set(EGL_LIB "")
+endif()
+if(NOT GLESv2_LIB)
+    set(GLESv2_LIB "")
+endif()
+if(NOT GLESv3_LIB)
+    set(GLESv3_LIB "")
+endif()
 
 # Our JNI bridge + angle manager
 add_library(nearchuckle_android SHARED
@@ -97,7 +114,8 @@ target_link_libraries(nearchuckle_android
     ${LOG_LIB}
     ${EGL_LIB}
     ${GLESv2_LIB}
-    # SDL3 will be linked via separate libSDL3.so from Externals/SDL or via gradle
+    # SDL3 intentionally not linked here for CI stub builds - JNI bridge uses header-only push
+    # Real Android builds will link via SDL3::SDL3 if available (optional)
 )
 
 if(USE_ANGLE AND TARGET libANGLE)

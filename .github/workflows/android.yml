@@ -92,11 +92,26 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
           chmod +x gradlew
+          echo "=== NDK/CMake info ==="
+          ls -lh $ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake || true
+          cmake --version || true
+          echo "=== Gradle version ==="
+          ./gradlew --version || true
+          echo "=== Starting assemble ==="
+          set -o pipefail
           if [ "${{ matrix.build_type }}" = "Release" ]; then
-            ./gradlew :app:assembleRelease --stacktrace --info -Dorg.gradle.jvmargs="-Xmx4g"
+            ./gradlew :app:assembleRelease --stacktrace --info -Dorg.gradle.jvmargs="-Xmx4g" 2>&1 | tee /tmp/gradle-${{ matrix.build_type }}.log; STATUS=${PIPESTATUS[0]}
           else
-            ./gradlew :app:assembleDebug --stacktrace --info
+            ./gradlew :app:assembleDebug --stacktrace --info 2>&1 | tee /tmp/gradle-${{ matrix.build_type }}.log; STATUS=${PIPESTATUS[0]}
           fi
+          echo "Gradle exit status $STATUS"
+          if [ $STATUS -ne 0 ]; then
+            echo "=== Gradle log tail ==="
+            tail -n 500 /tmp/gradle-${{ matrix.build_type }}.log || true
+            echo "=== CMake logs ==="
+            find app/build -name "CMakeOutput.log" -o -name "CMakeError.log" | xargs -I {} sh -c 'echo "--- {} ---"; cat {}' 2>&1 | head -n 800 || true
+          fi
+          exit $STATUS
 
       - name: Verify APK
         working-directory: android

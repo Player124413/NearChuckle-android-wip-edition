@@ -13,7 +13,13 @@ extern "C" {
 typedef struct IInput IInput;
 typedef struct ISystem ISystem;
 // We will use SDL_PushEvent for injection to avoid hard dependency on CryInput headers
+#if __has_include(<SDL3/SDL.h>)
 #include <SDL3/SDL.h>
+#elif __has_include(<SDL.h>)
+#include <SDL.h>
+#else
+#include "SDL_stub.h"
+#endif
 
 // Global state
 static JavaVM* gJvm = nullptr;

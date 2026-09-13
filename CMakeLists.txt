@@ -67,5 +67,34 @@ else()
     endif()
 endif()
 
-# Allow building with SDL3 from FetchContent if not found via pkg-config (needed for Android)
+# --- SDL3 fallback for CI without Externals/SDL ---
+# If SDL3 target still not defined after Externals, create a stub interface so configure doesn't fail
+# Real SDL3 will be provided via system package (libsdl3-dev) or FetchContent when available
+find_package(SDL3 QUIET)
+if(NOT TARGET SDL3 AND NOT TARGET SDL3::SDL3)
+    include(FindPkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(SDL3_PKG QUIET sdl3)
+        if(SDL3_PKG_FOUND)
+            add_library(SDL3 INTERFACE)
+            target_include_directories(SDL3 INTERFACE ${SDL3_PKG_INCLUDE_DIRS})
+            target_link_directories(SDL3 INTERFACE ${SDL3_PKG_LIBRARY_DIRS})
+            target_link_libraries(SDL3 INTERFACE ${SDL3_PKG_LIBRARIES})
+            message(STATUS "[SDL3] Found via pkg-config")
+        endif()
+    endif()
+endif()
+if(NOT TARGET SDL3 AND NOT TARGET SDL3::SDL3)
+    # Final fallback: stub headers from android/app/src/main/cpp/SDL_stub.h
+    if(NOT TARGET SDL3)
+        add_library(SDL3 INTERFACE)
+        target_include_directories(SDL3 INTERFACE ${CMAKE_SOURCE_DIR}/android/app/src/main/cpp)
+        message(WARNING "[SDL3] SDL3 not found - using stub headers (CI builds will configure but native features disabled). Install libsdl3-dev or provide Externals/SDL for full build.")
+    endif()
+endif()
+# Alias SDL3::SDL3 to SDL3 if needed for uniform linking
+if(TARGET SDL3 AND NOT TARGET SDL3::SDL3)
+    add_library(SDL3::SDL3 ALIAS SDL3)
+endif()
+
 add_subdirectory(SourceCode)

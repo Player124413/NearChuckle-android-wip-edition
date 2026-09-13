@@ -1,5 +1,11 @@
 #include <android/log.h>
+#if __has_include(<SDL3/SDL.h>)
 #include <SDL3/SDL.h>
+#elif __has_include(<SDL.h>)
+#include <SDL.h>
+#else
+#include "SDL_stub.h"
+#endif
 #include <jni.h>
 #include "angle_manager.h"
 

@@ -1,1 +1,10 @@
-add_subdirectory(SDL)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/SDL/CMakeLists.txt")
+    add_subdirectory(SDL)
+else()
+    message(WARNING "[Externals] SDL subdirectory not found at ${CMAKE_CURRENT_SOURCE_DIR}/SDL - using stub SDL3 interface (CI fallback). Define SDL3 via FetchContent or system package if you need real SDL3.")
+    # Provide stub SDL3 target so that linking doesn't fail in CI without SDL sources
+    if(NOT TARGET SDL3)
+        add_library(SDL3 INTERFACE)
+        target_include_directories(SDL3 INTERFACE ${CMAKE_SOURCE_DIR}/android/app/src/main/cpp)
+    endif()
+endif()

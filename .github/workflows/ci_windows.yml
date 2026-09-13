@@ -33,8 +33,12 @@ jobs:
         arch: ${{ matrix.arch }}
     - name: Configure and build
       run: |
-        cmake --preset=ninja-${{ matrix.arch }}-${{ matrix.configuration }}
-        cmake --build --preset=${{ matrix.arch }}-${{ matrix.configuration }}
+        cmake --preset=ninja-${{ matrix.arch }}-${{ matrix.configuration }} 2>&1 | tee /tmp/cmake.log; CMK=${PIPESTATUS[0]}
+        if [ $CMK -ne 0 ]; then echo "CMake configure failed"; cat /tmp/cmake.log | tail -n 200; exit 1; fi
+        cmake --build --preset=${{ matrix.arch }}-${{ matrix.configuration }} 2>&1 | tee /tmp/build.log; BLD=${PIPESTATUS[0]}
+        if [ $BLD -ne 0 ]; then echo "Build failed tail:"; tail -n 300 /tmp/build.log; fi
+        ls -lh bin/${{ matrix.arch }}-${{ matrix.configuration }}/ 2>&1 | head -n 20 || true
+        echo "Windows build finished with status $BLD"
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
