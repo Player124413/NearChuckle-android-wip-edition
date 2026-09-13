@@ -3,6 +3,11 @@ name: CI Android
 permissions:
   contents: write
 
+# Pinned upstream ANGLE revision (main @ 2026-09-12). Bump to update; a changed
+# revision changes the cache key and triggers a clean re-sync automatically.
+env:
+  ANGLE_REVISION: '927129a81b043176070e7089df897251d2da1d86'
+
 on:
   push:
     branches: [ "**" ]
@@ -54,14 +59,16 @@ jobs:
           done || true
           df -h / | tail -n 1
 
-      - name: Cache depot_tools and ANGLE checkout
-        uses: actions/cache@v4
+      - name: Restore depot_tools and ANGLE checkout cache
+        id: angle-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/depot_tools
             ~/angle
-          key: angle-depot-${{ runner.os }}-v9
+          key: angle-depot-${{ runner.os }}-v9-${{ env.ANGLE_REVISION }}
           restore-keys: |
+            angle-depot-${{ runner.os }}-v9-
             angle-depot-${{ runner.os }}-
 
       # =============================================================================
@@ -87,11 +94,8 @@ jobs:
       # target_os="android" + target_cpu (see infra/config/gn_args.star upstream).
       # =============================================================================
       - name: Build ANGLE from source (https://github.com/google/angle -> real libEGL_angle.so / libGLESv2_angle.so)
+        id: angle-build
         shell: bash
-        env:
-          # Pinned upstream ANGLE revision (main @ 2026-09-12). Bump to update;
-          # a changed revision triggers a clean re-sync automatically.
-          ANGLE_REVISION: '927129a81b043176070e7089df897251d2da1d86'
         run: |
           set -uo pipefail
 
@@ -179,7 +183,13 @@ jobs:
             local dir="$1" machine="$2" m
             [ -f "$dir/libEGL_angle.so" ] && [ -f "$dir/libGLESv2_angle.so" ] || return 1
             m=$(readelf -h "$dir/libEGL_angle.so" 2>/dev/null | awk '/Machine:/{print $NF}')
-            [ "$m" = "$machine" ]
+            [ "$m" = "$machine" ] || return 1
+            # guard against truncated/corrupt cache: header alone is not enough.
+            # NOTE: do NOT use `readelf | grep -q` here — grep -q closes the pipe on
+            # first match, readelf then dies of SIGPIPE (141) under pipefail, and
+            # symbols late in the table are never even read. Bash pattern on a
+            # captured string is pipe-free and deterministic.
+            [[ "$(readelf --dyn-syms "$dir/libEGL_angle.so" 2>/dev/null)" == *eglGetDisplay* ]]
           }
 
           build_abi() {
@@ -229,13 +239,22 @@ jobs:
 
           echo "::group::5) Install ANGLE libs into jniLibs (STRICT — fail instead of placeholders)"
           install_pair() {
-            local src="$1" dst="$2" machine="$3" lib m
+            local src="$1" dst="$2" machine="$3" lib m sym
             for lib in libEGL_angle.so libGLESv2_angle.so; do
               if [ ! -f "$src/$lib" ]; then echo "::error::$src/$lib missing"; return 1; fi
               m=$(readelf -h "$src/$lib" | awk '/Machine:/{print $NF}')
               if [ "$m" != "$machine" ]; then
                 echo "::error::$src/$lib is '$m', expected '$machine' (host build leaked in?)"
                 file "$src/$lib"
+                return 1
+              fi
+              case "$lib" in
+                libEGL_angle.so)    sym=eglGetDisplay ;;
+                libGLESv2_angle.so) sym=glBindTexture ;;
+              esac
+              if [[ "$(readelf --dyn-syms "$src/$lib" 2>/dev/null)" != *"$sym"* ]]; then
+                echo "::error::$src/$lib does not export '$sym' — corrupt/placeholder, refusing to ship"
+                readelf --dyn-syms "$src/$lib" 2>&1 | head -n 5
                 return 1
               fi
               cp -v "$src/$lib" "$dst/$lib"
@@ -266,26 +285,53 @@ jobs:
 
           echo "ANGLE REAL build SUCCEEDED — libEGL_angle.so/libGLESv2_angle.so installed into jniLibs"
 
+      # Save the (expensive, ~25 min cold) ANGLE checkout + build state right after
+      # the build step, so a failure in any LATER step (verify/gradle/lint) does not
+      # throw it away. Only the Release leg saves to avoid key races between the
+      # parallel matrix jobs; skipped on exact cache hit (nothing new to store).
+      - name: Save depot_tools and ANGLE checkout cache
+        if: matrix.build_type == 'Release' && steps.angle-build.outcome == 'success' && steps.angle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/depot_tools
+            ~/angle
+          key: angle-depot-${{ runner.os }}-v9-${{ env.ANGLE_REVISION }}
+
       - name: Verify ANGLE libs before Gradle (strict)
         run: |
           set -euo pipefail
           echo "=== Pre-Gradle jniLibs verification (STRICT — no placeholders) ==="
           ls -lh android/app/src/main/jniLibs/arm64-v8a/ android/app/src/main/jniLibs/armeabi-v7a/
           fail=0
+          # NOTE: real libEGL_angle.so is a thin dispatch layer (~150-350 KB);
+          # libGLESv2_angle.so is the big one (~4-15 MB). A minimum-size floor is
+          # NOT a valid check. The real guard against the old random-data
+          # placeholders is: correct Machine + exported API symbols in .dynsym.
           check_lib() {
-            local f="$1" machine="$2" m sz
+            local f="$1" machine="$2" must_sym="$3" m sz dyn
             m=$(readelf -h "$f" | awk '/Machine:/{print $NF}')
             sz=$(stat -c%s "$f")
             echo "$f: $(file -b "$f") [$m, $sz bytes]"
-            if [ "$m" != "$machine" ] || [ "$sz" -lt 1000000 ]; then
-              echo "::error::$f is not a real $machine library (machine=$m size=$sz)"
+            if [ "$m" != "$machine" ]; then
+              echo "::error::$f: wrong machine '$m' (expected '$machine')"
+              fail=1; return
+            fi
+            if [ "$sz" -lt 20000 ]; then
+              echo "::error::$f: suspiciously small ($sz bytes) — truncated or placeholder"
+              fail=1; return
+            fi
+            dyn=$(readelf --dyn-syms "$f" 2>/dev/null || true)
+            if [[ "$dyn" != *"$must_sym"* ]]; then
+              echo "::error::$f: '$must_sym' not exported — not a real library (placeholder/corrupt)"
+              printf '%s\n' "$dyn" | head -n 5 || true
               fail=1
             fi
           }
-          check_lib android/app/src/main/jniLibs/arm64-v8a/libEGL_angle.so   AArch64
-          check_lib android/app/src/main/jniLibs/arm64-v8a/libGLESv2_angle.so AArch64
-          check_lib android/app/src/main/jniLibs/armeabi-v7a/libEGL_angle.so   ARM
-          check_lib android/app/src/main/jniLibs/armeabi-v7a/libGLESv2_angle.so ARM
+          check_lib android/app/src/main/jniLibs/arm64-v8a/libEGL_angle.so    AArch64 eglGetDisplay
+          check_lib android/app/src/main/jniLibs/arm64-v8a/libGLESv2_angle.so AArch64 glBindTexture
+          check_lib android/app/src/main/jniLibs/armeabi-v7a/libEGL_angle.so   ARM     eglGetDisplay
+          check_lib android/app/src/main/jniLibs/armeabi-v7a/libGLESv2_angle.so ARM     glBindTexture
           exit $fail
 
       - name: Cache Gradle
