@@ -54,10 +54,12 @@ add_subdirectory("${SDL3_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/SDL3-build" EXCLUDE_F
 # libCrySoundSystem.so). All built from official release sources - no
 # prebuilt blobs. Sources come from the gradle task 'downloadAudioSources'.
 # ---------------------------------------------------------------------------
+# NOTE: GitHub auto-archive tarballs strip the leading "v" from the tag in
+# the extracted directory name (v1.3.5 -> ogg-1.3.5/).
 set(AUDIO_DEPS_DIR "${CMAKE_SOURCE_DIR}/../../../../.audio-deps")
 set(OPENAL_DIR  "${AUDIO_DEPS_DIR}/openal-soft-1.25.1")
-set(OGG_DIR     "${AUDIO_DEPS_DIR}/ogg-v1.3.5")
-set(VORBIS_DIR  "${AUDIO_DEPS_DIR}/vorbis-v1.3.7")
+set(OGG_DIR     "${AUDIO_DEPS_DIR}/ogg-1.3.5")
+set(VORBIS_DIR  "${AUDIO_DEPS_DIR}/vorbis-1.3.7")
 foreach(_d "${OPENAL_DIR}" "${OGG_DIR}" "${VORBIS_DIR}")
     if(NOT EXISTS "${_d}/CMakeLists.txt")
         message(FATAL_ERROR
