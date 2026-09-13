@@ -4,8 +4,11 @@
 #ifndef SDL_H
 #define SDL_H
 #include <stdint.h>
+// SDL_ThreadID is both a type and a function in SDL2 (SDL_ThreadID() returns current thread ID).
+// In C++ they would collide, so we provide a function SDL_ThreadID_fn and a macro that only matches SDL_ThreadID()
 typedef uint32_t SDL_ThreadID;
-static inline SDL_ThreadID SDL_ThreadID() { return 0; }
+static inline SDL_ThreadID SDL_ThreadID_fn(void) { return 0; }
+#define SDL_ThreadID() SDL_ThreadID_fn()
 static inline void SDL_Delay(uint32_t ms) {}
 static inline uint32_t SDL_GetTicks() { return 0; }
 static inline uint64_t SDL_GetTicks64() { return 0; }
